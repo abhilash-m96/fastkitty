@@ -1,5 +1,5 @@
 [project]
-name = "test1"
+name = "fast-api-multi-tenant"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
