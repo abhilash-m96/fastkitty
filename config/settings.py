@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ENV: str = Field(default="dev")
     TENANCY_CONFIG_PROVIDER: str = Field(default="file")
     TENANT_CONFIG_FILE_PATH: str = Field(default="tenants_config.json")
+    TENANT_CATALOG_DB_URI: str = Field(default="postgresql://user:password@localhost:5432/tenant_catalog")
 
 
 @lru_cache()

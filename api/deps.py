@@ -8,9 +8,9 @@ from schemas.tenant_config import TenantConfig
 from schemas.config_provider_connection import (
     ConfigProviderConnectionData,
     FileConnectionData,
+    DatabaseConnectionData,
 )
 from services.tenancy_service import TenancyService
-
 
 
 def get_tenant_id(
@@ -25,27 +25,45 @@ def get_tenant_id(
     return x_tenant_id.lower()
 
 
-def _build_config_provider_connection(provider_type: ProviderType, settings: Settings) -> ConfigProviderConnectionData:
+def _build_config_provider_connection(provider_type: str, settings: Settings) -> ConfigProviderConnectionData:
     if provider_type == ProviderType.FILE:
         return FileConnectionData(file_path=settings.TENANT_CONFIG_FILE_PATH)
+    elif provider_type == ProviderType.DATABASE:
+        return DatabaseConnectionData(db_uri=settings.TENANT_CATALOG_DB_URI)
     else:
         raise ValueError(f"Unsupported provider type: {provider_type}")
 
 
 def get_tenant_config(
-    tenant_id: str = Depends(get_tenant_id), settings=Depends(get_settings)
+    tenant_id: str = Depends(get_tenant_id),
+    settings: Settings = Depends(get_settings),
 ) -> TenantConfig:
     """
     Get tenant configuration.
     This is the key dependency that provides tenant context.
     """
+    
+    # Ensure provider_type is matched correctly (str to Enum if needed)
+    # settings.TENANCY_CONFIG_PROVIDER is a string, ProviderType is an Enum(str)
+    # Direct comparison works for StrEnum but let's be safe
+    try:
+        tenancy_config_provider = ProviderType(settings.TENANCY_CONFIG_PROVIDER)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid configuration: Unknown provider type '{settings.TENANCY_CONFIG_PROVIDER}'"
+        )
 
-    tenancy_config_provider = settings.TENANCY_CONFIG_PROVIDER
-    connection_data = _build_config_provider_connection(tenancy_config_provider, settings)
-    tenancy_service = TenancyService(provider_type=tenancy_config_provider, provider_connection_data=connection_data)
-
-    # TODO raise HTTP exceptions based on errors
-    config = tenancy_service.get_tenant_config(tenant_id=tenant_id)
+    try:
+        connection_data = _build_config_provider_connection(tenancy_config_provider, settings)
+        tenancy_service = TenancyService(provider_type=tenancy_config_provider, provider_connection_data=connection_data)
+        config = tenancy_service.get_tenant_config(tenant_id=tenant_id)
+    except Exception as e:
+        # Catch configuration errors or missing tenants
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Tenancy service error: {str(e)}"
+        )
 
     if not config:
         raise HTTPException(
@@ -67,17 +85,17 @@ def get_db(
 ) -> Generator[Session, None, None]:
     """Get a database session for the current tenant."""
 
-    db_uri = (
-        tenant_config.database_config.database_uri
-        if tenant_config.database_config.database_uri
-        else (
+    if tenant_config.database_config.database_uri:
+        db_uri = tenant_config.database_config.database_uri
+    else:
+        # Construct URI from components
+        db_uri = (
             f"{tenant_config.database_config.dialect}://{tenant_config.database_config.username}:"
             f"{tenant_config.database_config.password}@"
             f"{tenant_config.database_config.host}:"
             f"{tenant_config.database_config.port}/"
             f"{tenant_config.database_config.database_name}"
         )
-    )
 
     yield from create_session(
         db_uri=db_uri,
