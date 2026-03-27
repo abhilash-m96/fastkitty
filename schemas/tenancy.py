@@ -14,6 +14,9 @@ class DatabaseConfig(BaseModel):
     password: str = Field(..., description="Database password")
     database_name: str = Field(..., description="Name of the database")
     database_uri: Optional[str] = Field(None, description="Database connection URI")
+    schema_name: Optional[str] = Field(
+        None, description="Schema name for schema-per-tenant strategy"
+    )
     pool_pre_ping: bool = Field(
         default=True, description="Whether to pre-ping the database"
     )

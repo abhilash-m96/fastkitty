@@ -5,6 +5,8 @@ from typing import Annotated, Literal, Union
 
 from schemas.tenancy import DatabaseConfig
 
+TenancyDBStrategy = Literal["database", "schema", "row"]
+
 
 class TenancyConfigFileConnection(BaseModel):
     type: Literal["file"] = "file"
@@ -118,6 +120,11 @@ class Settings(BaseSettings):
 
     TENANCY_SECRETS_CONNECTION: TenancySecretsConnection = Field(
         default=TenancySecretsFileConnection()
+    )
+
+    TENANCY_DB_STRATEGY: TenancyDBStrategy = Field(
+        default="database",
+        description="Database multi-tenancy strategy selected at startup",
     )
 
     # User data provider
