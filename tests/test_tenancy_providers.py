@@ -78,9 +78,7 @@ def test_file_secrets_provider_returns_tenant_secrets(tmp_path: Path) -> None:
     secrets = provider.get_secrets("tenant_1")
 
     assert secrets.tenant_id == "tenant_1"
-    assert secrets.database_config.database_uri == (
-        "postgresql://user:password@localhost:5432/tenant_db"
-    )
+    assert secrets.database_config.database_uri is None
 
 
 def test_consul_provider_requires_url_with_scheme_and_host() -> None:

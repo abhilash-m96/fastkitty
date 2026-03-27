@@ -1,10 +1,10 @@
-"""Unit tests for tenancy-related schema normalization behavior."""
+"""Unit tests for tenancy-related schema behavior."""
 
 from schemas.tenancy import DatabaseConfig
 
 
-def test_database_config_builds_uri_when_missing() -> None:
-    """Build the database URI from individual connection fields when omitted."""
+def test_database_config_leaves_uri_empty_when_missing() -> None:
+    """Keep the raw schema value empty when no explicit URI is supplied."""
     config = DatabaseConfig(
         host="localhost",
         port=5432,
@@ -13,10 +13,7 @@ def test_database_config_builds_uri_when_missing() -> None:
         database_name="tenant_db",
     )
 
-    assert (
-        config.database_uri
-        == "postgresql://db_user:db_password@localhost:5432/tenant_db"
-    )
+    assert config.database_uri is None
 
 
 def test_database_config_preserves_explicit_uri() -> None:

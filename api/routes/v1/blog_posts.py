@@ -27,12 +27,12 @@ router = APIRouter(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
-def create_blog_post(
+async def create_blog_post(
     payload: Annotated[BlogPostCreate, Body()],
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: dict = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = service.create_post(payload, user_id=user_data["user_id"])
+    blog_post = await service.create_post(payload, user_id=user_data["user_id"])
     return BlogPostResponse.model_validate(blog_post)
 
 
@@ -46,11 +46,11 @@ def create_blog_post(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
-def list_blog_posts(
+async def list_blog_posts(
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: dict = Depends(get_user_data),
 ) -> list[BlogPostResponse]:
-    posts = service.list_posts(user_id=user_data["user_id"])
+    posts = await service.list_posts(user_id=user_data["user_id"])
     return [BlogPostResponse.model_validate(p) for p in posts]
 
 
@@ -65,12 +65,12 @@ def list_blog_posts(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
-def get_blog_post(
+async def get_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: dict = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
@@ -90,18 +90,18 @@ def get_blog_post(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
-def update_blog_post(
+async def update_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     payload: Annotated[BlogPostUpdate, Body()],
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: dict = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
         )
-    updated_blog_post = service.update_post(blog_post, payload)
+    updated_blog_post = await service.update_post(blog_post, payload)
     return BlogPostResponse.model_validate(updated_blog_post)
 
 
@@ -116,15 +116,15 @@ def update_blog_post(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
-def delete_blog_post(
+async def delete_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: dict = Depends(get_user_data),
 ) -> Response:
-    blog_post = service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
         )
-    service.delete_post(blog_post)
+    await service.delete_post(blog_post)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
