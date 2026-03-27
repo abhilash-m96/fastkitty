@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Uuid, func
+from sqlalchemy import Column, DateTime, String, func
 from sqlalchemy.orm import declarative_base
 
 
@@ -22,7 +22,7 @@ class TimestampedModel:
 class TenantScopedModel:
     __abstract__ = True
 
-    tenant_id = Column(Uuid(as_uuid=False), nullable=False, index=True)
+    tenant_id = Column(String(255), nullable=False, index=True)
 
 
 Base = declarative_base()
