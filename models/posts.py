@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Integer, String, Text
-from models.base import Base, TenantAwareModel
+from models.base import Base, TenantScopedModel, TimestampedModel
 
 
-class BlogPost(TenantAwareModel, Base):
+class BlogPost(TenantScopedModel, TimestampedModel, Base):
     __tablename__ = "blog_posts"
 
     id = Column(Integer, primary_key=True)
