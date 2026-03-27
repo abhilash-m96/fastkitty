@@ -126,6 +126,11 @@ class Settings(BaseSettings):
         default="database",
         description="Database multi-tenancy strategy selected at startup",
     )
+    TENANCY_DATABASE_MAX_ENGINES: int = Field(
+        default=50,
+        description="Maximum number of cached tenant database engines in database mode",
+        ge=1,
+    )
 
     # User data provider
     USER_DATA_SOURCE: UserDataSource = Field(
