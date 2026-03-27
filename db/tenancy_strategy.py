@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar, Token
 import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
@@ -8,7 +9,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from fastapi import FastAPI
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.orm import Session, with_loader_criteria
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from config.settings import Settings, TenancyDBStrategy
+from models.base import TenantAwareModel
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 
 
@@ -76,6 +79,11 @@ class _SharedSchemaEngineEntry:
     max_overflow: int
     pool_recycle: int
     pool_pre_ping: bool
+
+
+_current_row_tenant_id: ContextVar[str | None] = ContextVar(
+    "current_row_tenant_id", default=None
+)
 
 
 class _BasePlaceholderTenancyStrategy(TenancyStrategy):
@@ -333,6 +341,54 @@ class SchemaTenancyStrategy(_BasePlaceholderTenancyStrategy):
 class RowTenancyStrategy(_BasePlaceholderTenancyStrategy):
     strategy_name: TenancyDBStrategy = "row"
 
+    def __init__(self, settings: Settings):
+        super().__init__(settings)
+        self._shared_entry: _SharedSchemaEngineEntry | None = None
+        self._registry_lock = asyncio.Lock()
+
+    async def get_session(
+        self, tenant: TenantContext
+    ) -> AsyncGenerator[AsyncSession, None]:
+        entry = await self._get_or_create_entry(tenant.tenant_secrets.database_config)
+        session = entry.session_factory()
+        _configure_row_session(session)
+        token = set_current_row_tenant_id(tenant.tenant_id)
+        session.info["tenant_id"] = tenant.tenant_id
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            reset_current_row_tenant_id(token)
+            await session.close()
+
+    async def teardown(self) -> None:
+        async with self._registry_lock:
+            entry = self._shared_entry
+            self._shared_entry = None
+        if entry is not None:
+            await entry.engine.dispose()
+
+    async def _get_or_create_entry(
+        self, db_config: DatabaseConfig
+    ) -> _SharedSchemaEngineEntry:
+        db_uri = _build_db_uri(db_config)
+        async with self._registry_lock:
+            if self._shared_entry is None:
+                self._shared_entry = _create_shared_engine_entry(
+                    db_uri=db_uri,
+                    db_config=db_config,
+                )
+            else:
+                _validate_shared_pool_config(entry=self._shared_entry, db_config=db_config)
+                if self._shared_entry.db_uri != db_uri:
+                    raise ValueError(
+                        "Row strategy requires all tenants to share the same "
+                        f"database URL, got: {db_uri}"
+                    )
+            return self._shared_entry
+
 
 def create_tenancy_strategy(settings: Settings) -> TenancyStrategy:
     """Instantiate the configured tenancy strategy once at startup."""
@@ -375,3 +431,115 @@ def _normalize_schema_name(db_config: DatabaseConfig) -> str:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema_name):
         raise ValueError(f"Invalid schema_name for schema strategy: {schema_name!r}")
     return schema_name
+
+
+def set_current_row_tenant_id(tenant_id: str) -> Token[str | None]:
+    return _current_row_tenant_id.set(tenant_id)
+
+
+def get_current_row_tenant_id() -> str:
+    tenant_id = _current_row_tenant_id.get()
+    if not tenant_id:
+        raise RuntimeError("Row strategy requires a tenant context for DB access")
+    return tenant_id
+
+
+def reset_current_row_tenant_id(token: Token[str | None]) -> None:
+    _current_row_tenant_id.reset(token)
+
+
+def _configure_row_session(session: AsyncSession) -> None:
+    if session.info.get("_row_strategy_configured"):
+        return
+
+    event.listen(session.sync_session, "do_orm_execute", _apply_row_tenant_scope)
+    event.listen(session.sync_session, "before_flush", _stamp_row_tenant_writes)
+    session.info["_row_strategy_configured"] = True
+
+
+def _apply_row_tenant_scope(execute_state: object) -> None:
+    if not getattr(execute_state, "is_select", False):
+        return
+    if getattr(execute_state, "is_column_load", False):
+        return
+    if getattr(execute_state, "is_relationship_load", False):
+        return
+
+    tenant_id = get_current_row_tenant_id()
+    execute_state.statement = execute_state.statement.options(
+        with_loader_criteria(
+            TenantAwareModel,
+            lambda cls: cls.tenant_id == tenant_id,
+            include_aliases=True,
+        )
+    )
+
+
+def _stamp_row_tenant_writes(sync_session: Session, *_: object) -> None:
+    tenant_id = get_current_row_tenant_id()
+
+    for instance in sync_session.new:
+        if isinstance(instance, TenantAwareModel):
+            instance.tenant_id = tenant_id
+
+    for instance in list(sync_session.new) + list(sync_session.dirty):
+        if not isinstance(instance, TenantAwareModel):
+            continue
+        if instance.tenant_id != tenant_id:
+            raise ValueError(
+                "Row strategy detected a cross-tenant write for "
+                f"{instance.__class__.__name__}"
+            )
+
+
+def _create_shared_engine_entry(
+    *,
+    db_uri: str,
+    db_config: DatabaseConfig,
+) -> _SharedSchemaEngineEntry:
+    engine = create_async_engine(
+        db_uri,
+        pool_size=db_config.pool_size,
+        max_overflow=db_config.max_overflow,
+        pool_recycle=db_config.pool_recycle,
+        pool_pre_ping=db_config.pool_pre_ping,
+        echo=False,
+    )
+    session_factory = async_sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+    return _SharedSchemaEngineEntry(
+        db_uri=db_uri,
+        engine=engine,
+        session_factory=session_factory,
+        pool_size=db_config.pool_size,
+        max_overflow=db_config.max_overflow,
+        pool_recycle=db_config.pool_recycle,
+        pool_pre_ping=db_config.pool_pre_ping,
+    )
+
+
+def _validate_shared_pool_config(
+    *,
+    entry: _SharedSchemaEngineEntry,
+    db_config: DatabaseConfig,
+) -> None:
+    if (
+        entry.pool_size,
+        entry.max_overflow,
+        entry.pool_recycle,
+        entry.pool_pre_ping,
+    ) == (
+        db_config.pool_size,
+        db_config.max_overflow,
+        db_config.pool_recycle,
+        db_config.pool_pre_ping,
+    ):
+        return
+
+    raise ValueError(
+        "Shared-engine strategy received conflicting pool settings for the "
+        f"database URL: {entry.db_uri}"
+    )

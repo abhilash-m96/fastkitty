@@ -62,39 +62,6 @@ def test_get_app_tenancy_strategy_requires_initialized_state() -> None:
         get_app_tenancy_strategy(app)
 
 
-@pytest.mark.asyncio
-async def test_schema_placeholder_strategy_get_session_raises_not_implemented() -> None:
-    settings = Settings.model_construct(
-        TENANCY_DB_STRATEGY="row",
-        USER_DATA_SOURCE={"type": "header"},
-    )
-    strategy = create_tenancy_strategy(settings)
-    tenant = TenantContext(
-        tenant_id="tenant_1",
-        tenant_config=TenantConfig(
-            tenant_id="tenant_1",
-            display_name="Tenant One",
-            is_active=True,
-        ),
-        tenant_secrets=TenantSecrets(
-            tenant_id="tenant_1",
-            database_config=DatabaseConfig(
-                host="localhost",
-                port=5432,
-                username="user",
-                password="password",
-                database_name="tenant_db",
-            ),
-        ),
-    )
-
-    with pytest.raises(
-        NotImplementedError,
-        match="'row' tenancy session acquisition is not implemented yet",
-    ):
-        await anext(strategy.get_session(tenant))
-
-
 def test_app_startup_initializes_and_exposes_selected_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
