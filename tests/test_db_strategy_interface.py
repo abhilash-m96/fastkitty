@@ -65,7 +65,7 @@ def test_get_app_tenancy_strategy_requires_initialized_state() -> None:
 @pytest.mark.asyncio
 async def test_schema_placeholder_strategy_get_session_raises_not_implemented() -> None:
     settings = Settings.model_construct(
-        TENANCY_DB_STRATEGY="schema",
+        TENANCY_DB_STRATEGY="row",
         USER_DATA_SOURCE={"type": "header"},
     )
     strategy = create_tenancy_strategy(settings)
@@ -90,7 +90,7 @@ async def test_schema_placeholder_strategy_get_session_raises_not_implemented() 
 
     with pytest.raises(
         NotImplementedError,
-        match="'schema' tenancy session acquisition is not implemented yet",
+        match="'row' tenancy session acquisition is not implemented yet",
     ):
         await anext(strategy.get_session(tenant))
 
