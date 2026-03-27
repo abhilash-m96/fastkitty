@@ -171,6 +171,7 @@ git commit -m "plan: remove feature plan for <feature-name>"
 
 ## Never Do This
 
+
 - ❌ Not bypassing this AGENTS worflow when explicitly asked.
 - ❌ Start coding before the human approves the chunk plan
 - ❌ Start a chunk without re-reading FEATURE_PLAN.md first
