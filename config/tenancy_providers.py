@@ -33,7 +33,7 @@ class FileTenancyConfigProvider(TenancyConfigProvider):
 
     def get_tenants(self) -> list[TenantMetadata]:
         data = self._get_all_config()
-        return [TenantMetadata(**tenant) for tenant in data]
+        return [TenantMetadata(**tenant) for tenant in data.values()]
 
     def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig:
         # TODO handle caching based on `fresh`
