@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from config.settings import Settings, TenancyDBStrategy
-from models.base import TenantAwareModel
+from models.base import TenantScopedModel
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 
 
@@ -468,7 +468,7 @@ def _apply_row_tenant_scope(execute_state: object) -> None:
     tenant_id = get_current_row_tenant_id()
     execute_state.statement = execute_state.statement.options(
         with_loader_criteria(
-            TenantAwareModel,
+            TenantScopedModel,
             lambda cls: cls.tenant_id == tenant_id,
             include_aliases=True,
         )
@@ -479,11 +479,11 @@ def _stamp_row_tenant_writes(sync_session: Session, *_: object) -> None:
     tenant_id = get_current_row_tenant_id()
 
     for instance in sync_session.new:
-        if isinstance(instance, TenantAwareModel):
+        if isinstance(instance, TenantScopedModel):
             instance.tenant_id = tenant_id
 
     for instance in list(sync_session.new) + list(sync_session.dirty):
-        if not isinstance(instance, TenantAwareModel):
+        if not isinstance(instance, TenantScopedModel):
             continue
         if instance.tenant_id != tenant_id:
             raise ValueError(
