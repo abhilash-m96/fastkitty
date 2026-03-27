@@ -2,7 +2,7 @@
 
 ## Rules
 
-1. Never write code before the chunk plan is proposed, reviewed, and approved by the human and persisted to FEATURE_PLAN.md.
+1. Never write code before the chunk plan is proposed, reviewed, and approved by the human and persisted to FEATURE_PLAN.md unless explicitly asked to bypass.
 2. One branch = one concern. No exceptions.
 3. Branches must be stacked on each other — not all branching off main.
 4. If a chunk feels too big, split it further.
@@ -171,6 +171,8 @@ git commit -m "plan: remove feature plan for <feature-name>"
 
 ## Never Do This
 
+
+- ❌ Not bypassing this AGENTS worflow when explicitly asked.
 - ❌ Start coding before the human approves the chunk plan
 - ❌ Start a chunk without re-reading FEATURE_PLAN.md first
 - ❌ Put more than one concern in a branch
