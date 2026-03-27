@@ -55,6 +55,38 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 4. Open docs (dev only):
    - `http://localhost:8000/docs`
 
+**Tests**
+
+The project includes automated tests for the main behavior seams in the template:
+- tenancy schema normalization
+- user data parsing from headers, JWT payloads, and claims headers
+- database dependency wiring
+- service-layer behavior
+- provider factories and provider adapters
+- route-level behavior for `/v1/hello` and `/v1/blog-posts`
+
+Run the full test suite:
+```bash
+uv run pytest tests
+```
+
+Run a single test file:
+```bash
+uv run pytest tests/test_api_routes.py
+```
+
+Run a subset of tests by name:
+```bash
+uv run pytest tests -k hello
+```
+
+Use verbose output when needed:
+```bash
+uv run pytest tests -v
+```
+
+You do not need to start the FastAPI server before running tests. The suite uses FastAPI's in-process test client and shared pytest fixtures from `tests/conftest.py`.
+
 **Configuration**
 The full list of settings is in `.env.example`. Key settings:
 - `TENANCY_CONFIG_CONNECTION`: JSON config for tenancy config provider
@@ -245,3 +277,4 @@ To add a new resource:
 - Tests and CI
 - Dockerfile / docker-compose
 - Structured logging
+- Logfire Pydantic logging

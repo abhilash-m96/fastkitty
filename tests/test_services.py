@@ -1,3 +1,5 @@
+"""Unit tests for service-layer behavior with mocked collaborators."""
+
 from datetime import UTC, datetime
 from unittest.mock import Mock
 
@@ -11,6 +13,7 @@ from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
 
 def test_blog_posts_service_lists_posts_for_user() -> None:
+    """Query and return posts filtered to the requested author."""
     db = Mock()
     query = db.query.return_value
     filter_result = query.filter.return_value
@@ -26,6 +29,7 @@ def test_blog_posts_service_lists_posts_for_user() -> None:
 
 
 def test_blog_posts_service_get_post_returns_first_match() -> None:
+    """Return the first post matching the requested ID and author."""
     db = Mock()
     query = db.query.return_value
     filtered = query.filter.return_value
@@ -38,6 +42,7 @@ def test_blog_posts_service_get_post_returns_first_match() -> None:
 
 
 def test_blog_posts_service_create_post_persists_and_refreshes() -> None:
+    """Create a new post entity and persist it through the session."""
     db = Mock()
     service = BlogPostsService(db)
     payload = BlogPostCreate(title="Post", content="Body")
@@ -54,6 +59,7 @@ def test_blog_posts_service_create_post_persists_and_refreshes() -> None:
 
 
 def test_blog_posts_service_update_post_ignores_unknown_author_field() -> None:
+    """Ignore author changes when applying partial update payloads."""
     db = Mock()
     service = BlogPostsService(db)
     post = BlogPost(
@@ -76,6 +82,7 @@ def test_blog_posts_service_update_post_ignores_unknown_author_field() -> None:
 
 
 def test_blog_posts_service_delete_post_removes_and_commits() -> None:
+    """Delete the given post and commit the session transaction."""
     db = Mock()
     service = BlogPostsService(db)
     post = Mock(spec=BlogPost)
@@ -87,6 +94,7 @@ def test_blog_posts_service_delete_post_removes_and_commits() -> None:
 
 
 def test_tenancy_config_service_lists_tenants_from_provider() -> None:
+    """Pass through tenant metadata listings from the config provider."""
     provider = Mock()
     tenants = [
         TenantMetadata(
@@ -103,6 +111,7 @@ def test_tenancy_config_service_lists_tenants_from_provider() -> None:
 
 
 def test_tenancy_config_service_raises_for_missing_config() -> None:
+    """Raise a clear error when a tenant config cannot be found."""
     provider = Mock()
     provider.get_config.return_value = None
 
@@ -113,6 +122,7 @@ def test_tenancy_config_service_raises_for_missing_config() -> None:
 
 
 def test_tenancy_config_service_returns_provider_config() -> None:
+    """Return the provider result unchanged for configured tenants."""
     provider = Mock()
     tenant = TenantConfig(
         tenant_id="tenant_1",
@@ -129,6 +139,7 @@ def test_tenancy_config_service_returns_provider_config() -> None:
 
 def test_tenancy_secrets_service_raises_for_missing_secrets(
 ) -> None:
+    """Raise a clear error when tenant secrets are absent."""
     provider = Mock()
     provider.get_secrets.return_value = None
 
@@ -141,6 +152,7 @@ def test_tenancy_secrets_service_raises_for_missing_secrets(
 
 
 def test_tenancy_secrets_service_returns_provider_secrets() -> None:
+    """Return tenant secrets unchanged when the provider supplies them."""
     provider = Mock()
     secrets = TenantSecrets.model_validate(
         {

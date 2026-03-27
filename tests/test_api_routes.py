@@ -1,3 +1,5 @@
+"""Route-level tests for tenant-aware hello and blog post endpoints."""
+
 from datetime import UTC, datetime
 
 from api.deps.db import get_blog_posts_service
@@ -13,6 +15,7 @@ def _blog_post(
     content: str = "Post body",
     author: str = "user-123",
 ) -> BlogPost:
+    """Create a lightweight blog post model instance for response assertions."""
     now = datetime.now(UTC)
     return BlogPost(
         id=post_id,
@@ -30,6 +33,7 @@ def test_hello_uses_feature_message_template(
     tenant_config,
     header_user_headers,
 ) -> None:
+    """Use feature-config templating when a greet override is defined."""
     apply_overrides(
         {
             get_tenant_config: lambda: tenant_config,
@@ -48,6 +52,7 @@ def test_hello_falls_back_to_default_message_when_feature_missing(
     tenant_config,
     header_user_headers,
 ) -> None:
+    """Fall back to the default hello message when feature config is absent."""
     tenant_config.features = None
     apply_overrides({get_tenant_config: lambda: tenant_config})
 
@@ -63,6 +68,7 @@ def test_hello_rejects_inactive_tenant(
     inactive_tenant_config,
     header_user_headers,
 ) -> None:
+    """Block the hello route when the resolved tenant is inactive."""
     apply_overrides({get_tenant_config: lambda: inactive_tenant_config})
 
     response = client.get("/v1/hello", headers=header_user_headers)
@@ -72,6 +78,7 @@ def test_hello_rejects_inactive_tenant(
 
 
 def test_hello_requires_tenant_header_without_override(client) -> None:
+    """Return a 400 when tenant resolution has no header to read from."""
     response = client.get("/v1/hello")
 
     assert response.status_code == 400
@@ -86,6 +93,7 @@ def test_create_blog_post_returns_created_post(
     tenant_config,
     user_payload,
 ) -> None:
+    """Create a blog post for the current user and return the serialized model."""
     post = _blog_post(title="Created post", content="Created body")
 
     class FakeBlogPostsService:
@@ -120,6 +128,7 @@ def test_list_blog_posts_returns_user_posts(
     tenant_config,
     user_payload,
 ) -> None:
+    """List blog posts scoped to the current user from the service layer."""
     posts = [
         _blog_post(post_id=1, title="First"),
         _blog_post(post_id=2, title="Second"),
@@ -150,6 +159,7 @@ def test_get_blog_post_returns_not_found_when_missing(
     tenant_config,
     user_payload,
 ) -> None:
+    """Return a 404 when the requested blog post does not exist for the user."""
     class FakeBlogPostsService:
         def get_post(self, post_id: int, *, user_id: str):
             assert post_id == 999
@@ -176,6 +186,7 @@ def test_update_blog_post_returns_updated_resource(
     tenant_config,
     user_payload,
 ) -> None:
+    """Update an existing blog post and return the updated response body."""
     existing = _blog_post(post_id=5, title="Old title", content="Old body")
     updated = _blog_post(post_id=5, title="New title", content="New body")
 
@@ -215,6 +226,7 @@ def test_delete_blog_post_returns_no_content(
     tenant_config,
     user_payload,
 ) -> None:
+    """Delete an existing blog post and return an empty 204 response."""
     existing = _blog_post(post_id=9)
     calls = {"deleted": False}
 
@@ -249,6 +261,7 @@ def test_blog_posts_require_active_tenant(
     inactive_tenant_config,
     user_payload,
 ) -> None:
+    """Apply active-tenant enforcement to blog post routes as well."""
     apply_overrides(
         {
             get_tenant_config: lambda: inactive_tenant_config,

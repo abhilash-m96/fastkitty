@@ -1,3 +1,5 @@
+"""Unit tests for database dependency helpers and service wiring."""
+
 from unittest.mock import Mock
 
 from api.deps.db import build_db_uri, get_blog_posts_service, get_db
@@ -6,6 +8,7 @@ from services.blog_posts_service import BlogPostsService
 
 
 def test_build_db_uri_prefers_existing_database_uri() -> None:
+    """Prefer the direct URI when tenant secrets already provide one."""
     config = DatabaseConfig(
         host="localhost",
         port=5432,
@@ -19,6 +22,7 @@ def test_build_db_uri_prefers_existing_database_uri() -> None:
 
 
 def test_build_db_uri_falls_back_to_computed_uri() -> None:
+    """Compose the URI from discrete DB fields when no URI is present."""
     config = DatabaseConfig(
         host="localhost",
         port=5432,
@@ -32,6 +36,7 @@ def test_build_db_uri_falls_back_to_computed_uri() -> None:
 
 
 def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
+    """Pass the resolved tenant DB settings through to session creation."""
     tenant_secrets = TenantSecrets(
         tenant_id="tenant_1",
         database_config=DatabaseConfig(
@@ -64,6 +69,7 @@ def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
 
 
 def test_get_blog_posts_service_wraps_session() -> None:
+    """Construct the blog post service with the injected DB session."""
     db = Mock(name="db-session")
 
     service = get_blog_posts_service(db)
