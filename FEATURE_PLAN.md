@@ -3,7 +3,7 @@
 ## Chunks
 - [x] feat/async-db-foundation — Replace sync engine/session setup with SQLAlchemy async engine and async_sessionmaker; add FastAPI lifespan startup/shutdown wiring; switch the example app's DB-facing codepaths to async foundations only
 - [x] feat/strategy-config — Add TENANCY_DB_STRATEGY and strategy-aware schema/config changes, including schema_name on tenant DB config; validate startup wiring and payload shape for the selected strategy only
-- [ ] feat/db-strategy-interface — Introduce the internal async tenancy strategy contract, tenant DB context object, app-state strategy selection, and request-scoped session acquisition interface
+- [x] feat/db-strategy-interface — Introduce the internal async tenancy strategy contract, tenant DB context object, app-state strategy selection, and request-scoped session acquisition interface
 - [ ] feat/database-strategy — Implement database-per-tenant using one async engine per resolved tenant DB URL, bounded engine caching, eviction disposal, and isolated session/pool handling
 - [ ] feat/schema-strategy — Implement schema-per-tenant using a shared async engine plus per-session schema switching and explicit schema-state reset before pooled connection reuse
 - [ ] feat/row-strategy — Implement row-per-tenant using a shared async engine, a tenant-aware declarative base that adds tenant_id, created_at, and updated_at, automatic tenant stamping on writes, and enforced tenant scoping on ORM reads
