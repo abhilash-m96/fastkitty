@@ -1,13 +1,13 @@
-# Feature Plan: Tenant Secrets Provider
+# Feature Plan: Test Coverage Baseline
 
 ## Chunks
-- [ ] feat/secret-schema-settings — Tenant secrets schema + settings + docs/examples
-- [ ] feat/secret-providers — Secrets providers (file + AWS Secrets Manager) + provider factory
-- [ ] feat/secret-service-deps — Tenancy secret service + dependency wiring
-- [ ] feat/secret-tests — Tests for providers and factory (AWS mocked)
+- [x] feat/test-foundation — Pytest dependencies, test config, shared fixtures, and app/client helpers
+- [ ] feat/core-unit-tests — Unit tests for schemas, user-data parsing, DB URI/session wiring, services, and provider factories
+- [ ] feat/provider-tests — Tests for file and external-provider adapters with mocked Consul and Vault clients
+- [ ] feat/api-tests — Route-level tests for hello and blog-post endpoints, including tenant enforcement and user scoping
 
 ## Stack Hierarchy
-feat/secret-schema-settings → main
-feat/secret-providers → feat/secret-schema-settings
-feat/secret-service-deps → feat/secret-providers
-feat/secret-tests → feat/secret-service-deps
+feat/test-foundation → main
+feat/core-unit-tests → feat/test-foundation
+feat/provider-tests → feat/core-unit-tests
+feat/api-tests → feat/provider-tests
