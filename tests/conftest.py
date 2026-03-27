@@ -130,7 +130,7 @@ def jwt_user_headers(user_payload: dict[str, object]) -> dict[str, str]:
             "email": user_payload["email"],
             "roles": user_payload["roles"],
         },
-        key="test-secret",
+        key="test-secret-key-with-sufficient-length",
         algorithm="HS256",
     )
     return {
