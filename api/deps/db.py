@@ -34,8 +34,12 @@ async def get_db(
     """Get a database session for the current tenant."""
 
     strategy: TenancyStrategy = get_app_tenancy_strategy(request.app)
-    async for session in strategy.get_session(tenant_context):
-        yield session
+    session_generator = strategy.get_session(tenant_context)
+    try:
+        async for session in session_generator:
+            yield session
+    finally:
+        await session_generator.aclose()
 
 
 def get_blog_posts_service(db: AsyncSession = Depends(get_db)) -> BlogPostsService:

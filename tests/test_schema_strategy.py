@@ -1,5 +1,7 @@
 """Schema-per-tenant strategy tests."""
 
+import asyncio
+
 import pytest
 
 from config.settings import Settings
@@ -219,4 +221,52 @@ async def test_schema_strategy_requires_shared_database_uri(
         await anext(strategy.get_session(tenant_two))
 
     await generator_one.aclose()
+    await strategy.teardown()
+
+
+@pytest.mark.asyncio
+async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_statements: list[tuple[str, list[str]]] = []
+
+    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
+        return FakeAsyncEngine(url)
+
+    def fake_async_sessionmaker(**_: object):
+        def _factory() -> FakeAsyncSession:
+            return FakeAsyncSession()
+
+        return _factory
+
+    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
+    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+
+    strategy = SchemaTenancyStrategy(
+        Settings.model_construct(
+            TENANCY_DB_STRATEGY="schema",
+            USER_DATA_SOURCE={"type": "header"},
+        )
+    )
+    tenants = [
+        _make_tenant_context("tenant_1", schema_name="tenant_one"),
+        _make_tenant_context("tenant_2", schema_name="tenant_two"),
+    ]
+
+    async def run_request(tenant: TenantContext) -> None:
+        generator = strategy.get_session(tenant)
+        session = await anext(generator)
+        await asyncio.sleep(0)
+        await generator.aclose()
+        observed_statements.append((tenant.tenant_id, session.statements))
+
+    await asyncio.gather(*(run_request(tenants[index % 2]) for index in range(20)))
+
+    for tenant_id, statements in observed_statements:
+        expected_schema = "tenant_one" if tenant_id == "tenant_1" else "tenant_two"
+        assert statements == [
+            f"SET search_path TO {expected_schema}, public",
+            "RESET search_path",
+        ]
+
     await strategy.teardown()
