@@ -7,6 +7,7 @@ from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
 )
+from db.tenancy_strategy import TenantContext
 from schemas.tenancy import FeatureConfig, TenantConfig, TenantSecrets
 from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
@@ -85,6 +86,18 @@ def get_tenant_secrets(
         tenant_id=tenant_id
     )
     return secrets
+
+
+def get_tenant_context(
+    tenant_config: TenantConfig = Depends(require_active_tenant),
+    tenant_secrets: TenantSecrets = Depends(get_tenant_secrets),
+) -> TenantContext:
+    """Resolve a single tenant context object for downstream DB/session wiring."""
+    return TenantContext(
+        tenant_id=tenant_config.tenant_id,
+        tenant_config=tenant_config,
+        tenant_secrets=tenant_secrets,
+    )
 
 
 def get_feature_config(key: str | None = None):

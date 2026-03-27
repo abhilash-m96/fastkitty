@@ -1,12 +1,16 @@
 from typing import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.session import create_session
-from schemas.tenancy import TenantSecrets, DatabaseConfig
+from db.tenancy_strategy import (
+    TenantContext,
+    TenancyStrategy,
+    get_app_tenancy_strategy,
+)
+from schemas.tenancy import DatabaseConfig
 from services.blog_posts_service import BlogPostsService
-from api.deps.tenancy import get_tenant_secrets
+from api.deps.tenancy import get_tenant_context
 
 
 def build_db_uri(db_config: DatabaseConfig) -> str:
@@ -24,18 +28,13 @@ def build_db_uri(db_config: DatabaseConfig) -> str:
 
 
 async def get_db(
-    tenant_secrets: TenantSecrets = Depends(get_tenant_secrets),
+    request: Request,
+    tenant_context: TenantContext = Depends(get_tenant_context),
 ) -> AsyncGenerator[AsyncSession, None]:
     """Get a database session for the current tenant."""
 
-    db_config = tenant_secrets.database_config
-    async for session in create_session(
-        db_uri=build_db_uri(db_config),
-        pool_size=tenant_secrets.database_config.pool_size,
-        max_overflow=tenant_secrets.database_config.max_overflow,
-        pool_recycle=tenant_secrets.database_config.pool_recycle,
-        pool_pre_ping=tenant_secrets.database_config.pool_pre_ping,
-    ):
+    strategy: TenancyStrategy = get_app_tenancy_strategy(request.app)
+    async for session in strategy.get_session(tenant_context):
         yield session
 
 
