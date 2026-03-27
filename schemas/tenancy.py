@@ -26,15 +26,6 @@ class DatabaseConfig(BaseModel):
         description="The number of seconds to recycle the database connections",
     )
 
-    @model_validator(mode="after")
-    def set_uri(self) -> Self:
-        if not self.database_uri:
-            self.database_uri = (
-                f"{self.dialect}://{self.username}:{self.password}"
-                f"@{self.host}:{self.port}/{self.database_name}"
-            )
-        return self
-
 
 FeatureConfig = dict[
     str, Any
