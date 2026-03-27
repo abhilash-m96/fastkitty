@@ -1,41 +1,46 @@
-from config.tenancy_config_provider_factory import TenantConfigProviderFactory
-from config.tenancy_config_providers import ProviderType, TenantConfigProvider
-from schemas.config_provider_connection import ConfigProviderConnectionData
-from schemas.tenant_config import TenantConfig
+from config.tenancy_providers import (
+    TenancyConfigProvider,
+    TenancySecretsProvider,
+)
+from schemas.tenancy import TenantConfig, TenantSecrets, TenantMetadata
 
 
-class TenancyService:
-    """Service to manage tenancy operations."""
+class TenancyConfigService:
+    """Service to manage tenancy configuration operations."""
 
-    def __init__(
-        self,
-        provider_type: ProviderType,
-        provider_connection_data: ConfigProviderConnectionData,
-    ):
-        self.provider_type = provider_type
-        self.provider_connection_data = provider_connection_data
-        self.tenancy_config_provider_factory = TenantConfigProviderFactory()
-        self._provider: TenantConfigProvider = None
+    def __init__(self, tenancy_config_provider: TenancyConfigProvider):
+        self._provider = tenancy_config_provider
 
-
-    def list_tenants(self) -> list[str]:
-        """List all tenant IDs."""
-        pass
+    # TODO remove this from here and add it to a high level tenancy service separate from config or secrets
+    def list_tenants(self) -> list[TenantMetadata]:
+        """List all tenants metadata."""
+        tenants_metadata: list[TenantMetadata] = self._provider.get_tenants()
+        return tenants_metadata
 
     def get_tenant_config(self, tenant_id: str) -> TenantConfig:
         """Retrieve tenant configuration."""
-        tenancy_config_provider = self.tenancy_config_provider_factory.create(
-            provider_type=self.provider_type,
-            connection_data=self.provider_connection_data
-        )
-        self._provider = tenancy_config_provider
         config = self._provider.get_config(tenant_id)
 
         # TODO implement custom exceptions?
         if not config:
             raise ValueError(f"Tenant '{tenant_id}' not found or not configured")
 
-        if not config.is_active:
-            raise PermissionError(f"Tenant '{tenant_id}' is not active")
-
         return config
+
+
+class TenancySecretsService:
+    """Service to manage tenancy secrets operations."""
+
+    def __init__(self, tenancy_secrets_provider: TenancySecretsProvider):
+        self._provider = tenancy_secrets_provider
+
+    def get_tenant_secrets(self, tenant_id: str) -> TenantSecrets:
+        """Retrieve tenant secrets."""
+        secrets = self._provider.get_secrets(tenant_id)
+
+        if not secrets:
+            raise ValueError(
+                f"Tenant '{tenant_id}' secrets not found or not configured"
+            )
+
+        return secrets

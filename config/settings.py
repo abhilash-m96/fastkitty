@@ -1,43 +1,132 @@
-from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
 from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field
+from typing import Annotated, Literal, Union
+
+from schemas.tenancy import DatabaseConfig
+
+
+class TenancyConfigFileConnection(BaseModel):
+    type: Literal["file"] = "file"
+    file_path: str = Field(default="tenants_config.json")
+
+
+class TenancyConfigDBConnection(DatabaseConfig):
+    type: Literal["db"] = "db"
+
+
+class HCConsulTenancyConfigConnection(BaseModel):
+    type: Literal["hc_consul"] = "hc_consul"
+    url: str
+    token: str | None = Field(default=None)
+    consul_prefix: str = Field(default="tenants/config/")
+
+
+TenancyConfigConnection = Annotated[
+    Union[
+        TenancyConfigFileConnection,
+        TenancyConfigDBConnection,
+        HCConsulTenancyConfigConnection,
+    ],  # New providers to be added here
+    Field(discriminator="type"),
+]
+
+
+class TenancySecretsFileConnection(BaseModel):
+    type: Literal["file"] = "file"
+    file_path: str = Field(default="tenants_secrets.json")
+
+
+class TenancySecretsGCPConnection(BaseModel):
+    type: Literal["gcp"] = "gcp"
+    project_id: str
+    secret_id: str
+    version: str = Field(default="latest")
+    service_account_key_path: str | None = Field(default=None)
+
+
+class HCVaultTenancySecretsConnection(BaseModel):
+    type: Literal["hc_vault"] = "hc_vault"
+    url: str
+    token: str
+    vault_kv_path: str = Field(default="secret/data/tenants/{tenant_id}")
+
+
+TenancySecretsConnection = Annotated[
+    Union[
+        TenancySecretsFileConnection,
+        TenancySecretsGCPConnection,
+        HCVaultTenancySecretsConnection,
+    ],  # New providers to be added here
+    Field(discriminator="type"),
+]
+
+
+class UserDataHeaderSource(BaseModel):
+    type: Literal["header"] = "header"
+    user_id_header: str = Field(default="X-User-ID")
+    user_email_header: str | None = Field(default="X-User-Email")
+    user_roles_header: str | None = Field(default="X-User-Roles")
+    roles_delimiter: str = Field(default=",")  # "admin,editor" → ["admin", "editor"]
+
+
+class UserDataJWTSource(BaseModel):
+    type: Literal["jwt"] = "jwt"
+    header_name: str = Field(default="Authorization")
+    prefix: str | None = Field(default="Bearer")
+
+    # No secret here — gateway already verified, we just decode
+    user_id_claim: str = Field(default="sub")
+    user_email_claim: str | None = Field(default="email")
+    user_roles_claim: str | None = Field(default="roles")
+
+
+class UserDataSingleHeaderClaimsSource(BaseModel):
+    type: Literal["claims"] = "claims"
+    header_name: str = Field(default="X-User-Claims")
+    user_id_field: str = Field(default="id")
+    user_email_field: str | None = Field(default="email")
+    user_roles_field: str | None = Field(default="roles")
+
+
+UserDataSource = Annotated[
+    Union[
+        UserDataHeaderSource,
+        UserDataJWTSource,
+        UserDataSingleHeaderClaimsSource,
+    ],
+    Field(discriminator="type"),
+]
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="allow"
+    )
+
     # App Settings
-    APP_NAME: str = Field(default="multi-tenant-app")
-    DESCRIPTION: str = Field(default="Multi-Tenant Application Example")
+    APP_NAME: str = Field(default="fastkitty")
+    DESCRIPTION: str = Field(default="fastkitty multi-tenant service template")
     DEBUG: bool = Field(default=True)
     VERSION: str = Field(default="0.1.0")
     ENV: str = Field(default="dev")
-    TENANCY_CONFIG_PROVIDER: str = Field(default="file")
-    TENANT_CONFIG_FILE_PATH: str = Field(default="tenants_config.json")
-    TENANT_SECRET_PROVIDER: str = Field(default="file")
-    TENANT_SECRET_FILE_PATH: str = Field(default="tenants_secrets.json")
-    AWS_ACCESS_KEY_ID: str | None = Field(default=None)
-    AWS_SECRET_ACCESS_KEY: str | None = Field(default=None)
-    AWS_REGION: str | None = Field(default=None)
 
-    @model_validator(mode="after")
-    def _validate_provider_settings(self) -> "Settings":
-        config_provider = self.TENANCY_CONFIG_PROVIDER.lower()
-        secret_provider = self.TENANT_SECRET_PROVIDER.lower()
+    # Tenancy Settings
+    TENANCY_CONFIG_CONNECTION: TenancyConfigConnection = Field(
+        default=TenancyConfigFileConnection()
+    )
 
-        if config_provider == "file" and not self.TENANT_CONFIG_FILE_PATH:
-            raise ValueError("TENANT_CONFIG_FILE_PATH is required for file config provider")
+    TENANCY_SECRETS_CONNECTION: TenancySecretsConnection = Field(
+        default=TenancySecretsFileConnection()
+    )
 
-        if secret_provider == "file" and not self.TENANT_SECRET_FILE_PATH:
-            raise ValueError("TENANT_SECRET_FILE_PATH is required for file secret provider")
-
-        if secret_provider == "aws":
-            if not self.AWS_ACCESS_KEY_ID or not self.AWS_SECRET_ACCESS_KEY:
-                raise ValueError(
-                    "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for aws secret provider"
-                )
-
-        return self
+    # User data provider
+    USER_DATA_SOURCE: UserDataSource = Field(
+        ...,
+        description="User data extraction strategy (headers | jwt | single header claims)",
+    )
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

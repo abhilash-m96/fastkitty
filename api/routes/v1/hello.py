@@ -1,21 +1,32 @@
 from fastapi import APIRouter, Depends
-from api.deps import get_db, get_tenant_id
-from models.posts import BlogPost
+from api.deps.tenancy import (
+    get_feature_config,
+    get_tenant_config,
+    require_active_tenant,
+)
+from schemas.tenancy import FeatureConfig, TenantConfig
 
 
-router = APIRouter(tags=["Hello"])
+router = APIRouter(
+    tags=["Greet"],
+    dependencies=[Depends(require_active_tenant)],
+)
 
 
-@router.get("/hello")
-async def hello(tenant_id: str = Depends(get_tenant_id)):
-    return {"message": f"Hello {tenant_id}!"}
+@router.get("/hello", name="greet")
+async def hello(
+    tenant_config: TenantConfig = Depends(get_tenant_config),
+    feature_config: FeatureConfig | None = Depends(get_feature_config("greet")),
+):
+    message = feature_config.get("message") if feature_config else None
+    tenant_name = tenant_config.display_name
+    if not message:
+        message = f"Hello {tenant_name}!"
+    try:
+        message = message.format(
+            tenant_name=tenant_config.display_name,
+        )
+    except (KeyError, ValueError):
+        pass
 
-
-@router.get("/blog-posts")
-async def blog_posts(db=Depends(get_db)):
-    import pdb
-
-    pdb.set_trace()
-
-    posts = db.query(BlogPost).all()
-    return posts
+    return {"message": message}

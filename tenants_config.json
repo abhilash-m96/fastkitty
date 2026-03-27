@@ -3,25 +3,21 @@
         "tenant_id": "tenant_1",
         "display_name": "Tenant One",
         "is_active": true,
-        "database_config": {
-            "database_uri": "postgresql+psycopg2://tenant1_user:securepassword1@db.tenant1.com:5432/tenant1_db",
-            "host": "db.tenant1.com",
-            "port": 5432,
-            "username": "tenant1_user",
-            "password": "securepassword1",
-            "database_name": "tenant1_db"
+        "features": {
+            "greet": {
+                "message": "Hello, welcome '{tenant_name}'!"
+            }
         }
+
     },
     "tenant_2": {
         "tenant_id": "tenant_2",
         "display_name": "Tenant Two",
         "is_active": true,
-        "database_config": {
-            "host": "db.tenant2.com",
-            "port": 5432,
-            "username": "tenant2_user",
-            "password": "securepassword2",
-            "database_name": "tenant2_db"
+        "features": {
+            "greet": {
+                "message": "Hi '{tenant_name}', welcome!"
+            }
         }
     }
 }

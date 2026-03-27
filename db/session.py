@@ -12,7 +12,7 @@ def get_engine(
     pool_size: int,
     max_overflow: int,
     pool_recycle: int,
-    pool_pre_ping: bool
+    pool_pre_ping: bool,
 ) -> Engine:
     """
     Create and cache a database engine.
@@ -36,7 +36,7 @@ def get_engine(
         max_overflow=max_overflow,
         pool_recycle=pool_recycle,
         pool_pre_ping=pool_pre_ping,
-        echo=False
+        echo=False,
     )
 
 
@@ -45,33 +45,21 @@ def create_session(
     pool_size: int,
     max_overflow: int,
     pool_recycle: int,
-    pool_pre_ping: bool
+    pool_pre_ping: bool,
 ) -> Generator[Session, None, None]:
-    """
-    Create a database session for a single request.
-
-    Args:
-        db_uri: Database connection URI
-        pool_size: Minimum connections in pool
-        max_overflow: Additional connections under load
-        pool_recycle: Recycle connections after N seconds
-        pool_pre_ping: Verify connections before use
-
-    Yields:
-        SQLAlchemy Session instance
-    """
     engine = get_engine(
         db_uri=db_uri,
         pool_size=pool_size,
         max_overflow=max_overflow,
         pool_recycle=pool_recycle,
-        pool_pre_ping=pool_pre_ping
+        pool_pre_ping=pool_pre_ping,
     )
-
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = SessionLocal()
-
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
