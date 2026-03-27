@@ -29,7 +29,7 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 ## What you get
 
 * Explicit tenancy via `X-Tenant-ID`
-* Different DB strategies for mult-tenancy
+* Different DB strategies for multi-tenancy
 * Clean dependency injection (tenancy, DB, identity)
 * Service layer pattern (thin HTTP routes)
 * Configurable identity provider (headers or JWT)
@@ -64,6 +64,7 @@ The project includes automated tests for the main behavior seams in the template
 - service-layer behavior
 - provider factories and provider adapters
 - route-level behavior for `/v1/hello` and `/v1/blog-posts`
+- database strategy isolation, eviction, tenant scoping, and dependency wiring
 
 Run the full test suite:
 ```bash
@@ -91,17 +92,99 @@ You do not need to start the FastAPI server before running tests. The suite uses
 The full list of settings is in `.env.example`. Key settings:
 - `TENANCY_CONFIG_CONNECTION`: JSON config for tenancy config provider
 - `TENANCY_SECRETS_CONNECTION`: JSON config for tenancy secrets provider
+- `TENANCY_DB_STRATEGY`: `database` | `schema` | `row`
+- `TENANCY_DATABASE_MAX_ENGINES`: max cached engines for `database` strategy
 - `USER_DATA_SOURCE`: `header` | `jwt` | `claims`
 
 **Tenancy Model**
 Tenancy is resolved from the `X-Tenant-ID` header:
 - `tenants_config.json` defines tenants, status, and per-tenant features
 - `tenants_secrets.json` provides DB connection details
+- the app validates the selected DB strategy at startup and fails fast on incompatible tenant secret payloads
 
-**Planned Roadmap**
-- Configurable tenant ID resolution (custom header name, JWT claim, or custom resolver), similar to `USER_DATA_SOURCE`
-- Shared DB with row-level tenancy (`tenant_id` column) and schema-per-tenant (single DB, separate schemas)
-- Startup validation for config/secrets (behavior TBD: fail-fast vs warn; provider connectivity scope)
+**DB Strategy Selection**
+The template is now async-only for DB access. SQLAlchemy uses `AsyncSession`, and PostgreSQL connections are expected to be async-compatible, typically `postgresql+asyncpg://...`.
+
+Choose the strategy once at startup with:
+```env
+TENANCY_DB_STRATEGY=database
+```
+
+Available values:
+- `database`: one database per tenant
+- `schema`: one shared database, separate schema per tenant
+- `row`: one shared database and schema, tenant isolation via `tenant_id`
+
+The selected strategy is the only runtime path. There is no per-request strategy switching.
+
+**Tenancy Strategies**
+- **`database`**: each tenant resolves to its own DB URL from `tenants_secrets.json`. Engines are cached per DB URL with bounded retention (`TENANCY_DATABASE_MAX_ENGINES`) and disposed on eviction after in-flight sessions finish.
+- **`schema`**: all tenants must share one DB URL and provide `database_config.schema_name`. Each request sets `search_path` to `<schema>, public` and resets it before the connection is returned.
+- **`row`**: all tenants must share one DB URL. Tenant-scoped models inherit from `TenantAwareModel`, reads are filtered by `tenant_id`, and writes are stamped and validated against the current tenant context.
+
+**Tenant Secret Shape**
+Each tenant secret entry still contains `database_config`, but the required fields depend on the selected strategy.
+
+Database strategy example:
+```json
+{
+  "tenant_1": {
+    "tenant_id": "tenant_1",
+    "database_config": {
+      "database_uri": "postgresql+asyncpg://tenant1_user:securepassword1@db.tenant1.com:5432/tenant1_db",
+      "host": "db.tenant1.com",
+      "port": 5432,
+      "username": "tenant1_user",
+      "password": "securepassword1",
+      "database_name": "tenant1_db"
+    }
+  }
+}
+```
+
+Schema strategy example:
+```json
+{
+  "tenant_1": {
+    "tenant_id": "tenant_1",
+    "database_config": {
+      "database_uri": "postgresql+asyncpg://shared_user:sharedpassword@db.shared.com:5432/app_db",
+      "host": "db.shared.com",
+      "port": 5432,
+      "username": "shared_user",
+      "password": "sharedpassword",
+      "database_name": "app_db",
+      "schema_name": "tenant_one"
+    }
+  }
+}
+```
+
+Row strategy example:
+```json
+{
+  "tenant_1": {
+    "tenant_id": "tenant_1",
+    "database_config": {
+      "database_uri": "postgresql+asyncpg://shared_user:sharedpassword@db.shared.com:5432/app_db",
+      "host": "db.shared.com",
+      "port": 5432,
+      "username": "shared_user",
+      "password": "sharedpassword",
+      "database_name": "app_db"
+    }
+  }
+}
+```
+
+**Safety Guarantees**
+- Missing `X-Tenant-ID` fails before DB session acquisition.
+- Inactive tenants are rejected before DB session acquisition.
+- Schema names are validated before use in `SET search_path`.
+- Schema strategy resets `search_path` before session close.
+- Row strategy raises if DB access occurs without tenant context.
+- Row strategy rejects cross-tenant writes before flush.
+- Database strategy never shares sessions across tenant DB URLs.
 
 **Active Tenant Enforcement**
 Tenant lookup and active checks are split into separate dependencies:
@@ -135,11 +218,6 @@ router = APIRouter(tags=["Greet"])
 async def hello():
     return {"message": "Hello!"}
 ```
-
-**Tenancy Strategies**
-- **Per-tenant DBs (implemented)**: each tenant has its own connection details in `tenants_secrets.json`
-- **Schema-per-tenant (planned)**: one DB, separate schemas per tenant
-- **Shared DB with tenant column (planned)**: single schema, enforced tenancy via `tenant_id`
 
 **User Data Provider**
 User identity is resolved independently of auth:
@@ -186,6 +264,12 @@ In `dev` mode, interactive API docs are available at:
 - `schemas`: Pydantic schemas
 - `config`: config providers and settings
 - `db`: database session / engine setup
+
+**Async-only DB Layer**
+- Sync SQLAlchemy sessions are not supported.
+- Routes and services that touch the DB are async.
+- PostgreSQL is the primary supported backend.
+- If you provide a full `database_uri`, use an async-compatible driver such as `postgresql+asyncpg://...`.
 
 **Feature Configuration (Per Tenant)**
 Each tenant can define feature-specific config under `features`. Feature values are user-defined JSON.
@@ -273,8 +357,7 @@ To add a new resource:
 5. Wire dependencies from `api/deps/`
 
 **Roadmap / Optional Enhancements**
-- Alembic migrations
-- Tests and CI
+- Alembic migrations and provisioning workflows
 - Dockerfile / docker-compose
 - Structured logging
 - Logfire Pydantic logging
