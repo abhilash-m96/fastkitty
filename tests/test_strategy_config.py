@@ -92,9 +92,7 @@ def test_schema_strategy_startup_validation_accepts_schema_names(
     settings = Settings.model_construct(
         TENANCY_DB_STRATEGY="schema",
         TENANCY_CONFIG_CONNECTION=TenancyConfigFileConnection(file_path=config_path),
-        TENANCY_SECRETS_CONNECTION=TenancySecretsFileConnection(
-            file_path=secrets_path
-        ),
+        TENANCY_SECRETS_CONNECTION=TenancySecretsFileConnection(file_path=secrets_path),
         USER_DATA_SOURCE={"type": "header"},
     )
 
@@ -112,9 +110,7 @@ def test_schema_strategy_startup_validation_rejects_missing_schema_name(
     settings = Settings.model_construct(
         TENANCY_DB_STRATEGY="schema",
         TENANCY_CONFIG_CONNECTION=TenancyConfigFileConnection(file_path=config_path),
-        TENANCY_SECRETS_CONNECTION=TenancySecretsFileConnection(
-            file_path=secrets_path
-        ),
+        TENANCY_SECRETS_CONNECTION=TenancySecretsFileConnection(file_path=secrets_path),
         USER_DATA_SOURCE={"type": "header"},
     )
 

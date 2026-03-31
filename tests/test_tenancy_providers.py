@@ -78,7 +78,9 @@ def test_file_secrets_provider_returns_tenant_secrets(tmp_path: Path) -> None:
     secrets = provider.get_secrets("tenant_1")
 
     assert secrets.tenant_id == "tenant_1"
-    assert secrets.database_config.database_uri is None
+    assert secrets.database_config.database_uri == (
+        "postgresql+asyncpg://user:password@localhost:5432/tenant_db"
+    )
 
 
 def test_consul_provider_requires_url_with_scheme_and_host() -> None:
@@ -94,7 +96,9 @@ def test_consul_provider_requires_url_with_scheme_and_host() -> None:
 def test_consul_provider_builds_tenant_key_from_prefix(monkeypatch: object) -> None:
     """Normalize the Consul prefix before building the tenant KV key."""
     fake_client = Mock()
-    monkeypatch.setattr("config.tenancy_providers.consul.Consul", lambda **_: fake_client)
+    monkeypatch.setattr(
+        "config.tenancy_providers.consul.Consul", lambda **_: fake_client
+    )
     provider = HCConsulTenancyConfigProvider(
         url="https://consul.example.com",
         token="token",
@@ -111,7 +115,9 @@ def test_consul_provider_reads_and_decodes_bytes_payload(monkeypatch: object) ->
         1,
         {"Value": json.dumps(_tenant_config_payload()["tenant_1"]).encode("utf-8")},
     )
-    monkeypatch.setattr("config.tenancy_providers.consul.Consul", lambda **_: fake_client)
+    monkeypatch.setattr(
+        "config.tenancy_providers.consul.Consul", lambda **_: fake_client
+    )
     provider = HCConsulTenancyConfigProvider(
         url="https://consul.example.com",
         token="token",
@@ -128,14 +134,18 @@ def test_consul_provider_raises_for_missing_value(monkeypatch: object) -> None:
     """Raise a clear error when the Consul KV entry is missing."""
     fake_client = Mock()
     fake_client.kv.get.return_value = (1, None)
-    monkeypatch.setattr("config.tenancy_providers.consul.Consul", lambda **_: fake_client)
+    monkeypatch.setattr(
+        "config.tenancy_providers.consul.Consul", lambda **_: fake_client
+    )
     provider = HCConsulTenancyConfigProvider(
         url="https://consul.example.com",
         token=None,
         consul_prefix="tenants/config/",
     )
 
-    with pytest.raises(ValueError, match="Tenant 'tenant_1' not found or not configured"):
+    with pytest.raises(
+        ValueError, match="Tenant 'tenant_1' not found or not configured"
+    ):
         provider.get_config("tenant_1")
 
 
@@ -143,7 +153,9 @@ def test_consul_provider_raises_for_invalid_json(monkeypatch: object) -> None:
     """Raise a clear error when Consul returns invalid JSON content."""
     fake_client = Mock()
     fake_client.kv.get.return_value = (1, {"Value": "{invalid-json"})
-    monkeypatch.setattr("config.tenancy_providers.consul.Consul", lambda **_: fake_client)
+    monkeypatch.setattr(
+        "config.tenancy_providers.consul.Consul", lambda **_: fake_client
+    )
     provider = HCConsulTenancyConfigProvider(
         url="https://consul.example.com",
         token=None,
