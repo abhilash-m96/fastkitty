@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import Settings, TenancyDBStrategy
-from schemas.tenancy import TenantConfig, TenantSecrets
+from config.settings import Settings
+from schemas.tenancy import TenantConfig, TenantSecrets, TenancyDBStrategy
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +35,10 @@ class TenancyStrategy(ABC):
         """Release any strategy-owned resources at application shutdown."""
 
     @abstractmethod
-    async def get_session(
+    def get_session(
         self, tenant: TenantContext
-    ) -> AsyncGenerator[AsyncSession, None]:
-        """Yield a request-scoped session for the resolved tenant context."""
+    ) -> AbstractAsyncContextManager[AsyncSession]:
+        """Return a context manager yielding a request-scoped session."""
 
 
 class _BasePlaceholderTenancyStrategy(TenancyStrategy):
