@@ -160,6 +160,7 @@ def test_get_blog_post_returns_not_found_when_missing(
     user_payload,
 ) -> None:
     """Return a 404 when the requested blog post does not exist for the user."""
+
     class FakeBlogPostsService:
         async def get_post(self, post_id: int, *, user_id: str):
             assert post_id == 999

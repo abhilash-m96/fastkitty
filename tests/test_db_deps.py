@@ -33,7 +33,9 @@ def test_build_db_uri_falls_back_to_computed_uri() -> None:
     )
     config.database_uri = None
 
-    assert build_db_uri(config) == "postgresql+asyncpg://user:password@localhost:5432/db"
+    assert (
+        build_db_uri(config) == "postgresql+asyncpg://user:password@localhost:5432/db"
+    )
 
 
 @pytest.mark.asyncio
