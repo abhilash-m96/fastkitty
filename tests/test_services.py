@@ -122,7 +122,9 @@ def test_tenancy_config_service_raises_for_missing_config() -> None:
 
     service = TenancyConfigService(provider)
 
-    with pytest.raises(ValueError, match="Tenant 'tenant_1' not found or not configured"):
+    with pytest.raises(
+        ValueError, match="Tenant 'tenant_1' not found or not configured"
+    ):
         service.get_tenant_config("tenant_1")
 
 
@@ -142,8 +144,7 @@ def test_tenancy_config_service_returns_provider_config() -> None:
     assert service.get_tenant_config("tenant_1") == tenant
 
 
-def test_tenancy_secrets_service_raises_for_missing_secrets(
-) -> None:
+def test_tenancy_secrets_service_raises_for_missing_secrets() -> None:
     """Raise a clear error when tenant secrets are absent."""
     provider = Mock()
     provider.get_secrets.return_value = None
