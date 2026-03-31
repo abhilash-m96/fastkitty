@@ -128,6 +128,7 @@ class Settings(BaseSettings):
         default=50,
         description="Maximum number of cached tenant database engines in database mode",
         ge=1,
+        le=500,
     )
 
     # User data provider
