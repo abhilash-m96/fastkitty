@@ -32,6 +32,7 @@ def test_config_provider_factory_creates_file_provider() -> None:
 
 def test_config_provider_factory_creates_consul_provider(monkeypatch: object) -> None:
     """Build a Consul config provider with the expected constructor args."""
+
     class FakeConsulProvider:
         def __init__(self, url: str, token: str | None, consul_prefix: str):
             self.url = url
@@ -59,6 +60,7 @@ def test_config_provider_factory_creates_consul_provider(monkeypatch: object) ->
 
 def test_config_provider_factory_rejects_unsupported_connection() -> None:
     """Reject unknown config connection types with a clear error."""
+
     class UnsupportedConnection:
         type = "unsupported"
 
@@ -78,6 +80,7 @@ def test_secrets_provider_factory_creates_file_provider() -> None:
 
 def test_secrets_provider_factory_creates_vault_provider(monkeypatch: object) -> None:
     """Build a Vault secrets provider with the expected constructor args."""
+
     class FakeVaultProvider:
         def __init__(self, url: str, token: str, vault_kv_path: str):
             self.url = url
@@ -105,6 +108,7 @@ def test_secrets_provider_factory_creates_vault_provider(monkeypatch: object) ->
 
 def test_secrets_provider_factory_rejects_unsupported_connection() -> None:
     """Reject unknown secrets connection types with a clear error."""
+
     class UnsupportedConnection:
         type = "unsupported"
 
