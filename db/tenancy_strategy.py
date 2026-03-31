@@ -269,14 +269,18 @@ class SchemaTenancyStrategy(TenancyStrategy):
         db_uri = db_config.database_uri
         async with self._registry_lock:
             if self._shared_entry is None:
-                self._shared_entry = self._create_entry(db_uri=db_uri, db_config=db_config)
+                self._shared_entry = self._create_entry(
+                    db_uri=db_uri, db_config=db_config
+                )
             else:
                 if self._shared_entry.db_uri != db_uri:
                     raise ValueError(
                         "Schema strategy requires all tenants to share the same "
                         f"database URL, got: {db_uri}"
                     )
-                self._validate_shared_config(entry=self._shared_entry, db_config=db_config)
+                self._validate_shared_config(
+                    entry=self._shared_entry, db_config=db_config
+                )
             return self._shared_entry
 
     def _create_entry(
