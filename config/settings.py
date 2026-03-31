@@ -3,9 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal, Union
 
-from schemas.tenancy import DatabaseConfig
-
-TenancyDBStrategy = Literal["database", "schema", "row"]
+from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 
 
 class TenancyConfigFileConnection(BaseModel):
@@ -130,6 +128,7 @@ class Settings(BaseSettings):
         default=50,
         description="Maximum number of cached tenant database engines in database mode",
         ge=1,
+        le=500,
     )
 
     # User data provider
