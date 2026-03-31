@@ -1,12 +1,11 @@
 from collections.abc import Iterable
-
-from config.settings import Settings, TenancyDBStrategy
+from config.settings import Settings
 from config.tenancy_providers import TenancyConfigProvider
 from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
 )
-from schemas.tenancy import DatabaseConfig
+from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 
 
 def validate_database_config_for_strategy(

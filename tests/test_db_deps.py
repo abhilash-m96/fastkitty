@@ -1,43 +1,19 @@
 """Unit tests for database dependency helpers and service wiring."""
 
 import pytest
-from unittest.mock import Mock
+from contextlib import asynccontextmanager
+from unittest.mock import Mock, AsyncMock
 
-from api.deps.db import build_db_uri, get_blog_posts_service, get_db
+from api.deps.db import get_blog_posts_service, get_db
+from db.session import PoolConfig
 from schemas.tenancy import DatabaseConfig, TenantSecrets
 from services.blog_posts_service import BlogPostsService
 
 
-def test_build_db_uri_prefers_existing_database_uri() -> None:
-    """Prefer the direct URI when tenant secrets already provide one."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-        database_uri="sqlite:///tmp.db",
-    )
-
-    assert build_db_uri(config) == "sqlite:///tmp.db"
-
-
-def test_build_db_uri_falls_back_to_computed_uri() -> None:
-    """Compose the URI from discrete DB fields when no URI is present."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-    )
-    config.database_uri = None
-
-    assert build_db_uri(config) == "postgresql+asyncpg://user:password@localhost:5432/db"
-
-
 @pytest.mark.asyncio
-async def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
+async def test_get_db_delegates_to_create_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Pass the resolved tenant DB settings through to session creation."""
     tenant_secrets = TenantSecrets(
         tenant_id="tenant_1",
@@ -50,10 +26,11 @@ async def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
         ),
     )
     session = Mock(name="session")
-    captured: dict[str, object] = {}
+    captured: list[PoolConfig] = []
 
-    async def fake_create_session(**kwargs: object):
-        captured.update(kwargs)
+    @asynccontextmanager
+    async def fake_create_session(config: PoolConfig):
+        captured.append(config)
         yield session
 
     monkeypatch.setattr("api.deps.db.create_session", fake_create_session)
@@ -62,13 +39,14 @@ async def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
     yielded_session = await anext(generator)
 
     assert yielded_session is session
-    assert captured == {
-        "db_uri": "postgresql+asyncpg://user:password@localhost:5432/db",
-        "pool_size": 10,
-        "max_overflow": 10,
-        "pool_recycle": 3600,
-        "pool_pre_ping": True,
-    }
+    assert len(captured) == 1
+    assert captured[0] == PoolConfig(
+        db_uri="postgresql+asyncpg://user:password@localhost:5432/db",
+        pool_size=10,
+        max_overflow=10,
+        pool_recycle=3600,
+        pool_pre_ping=True,
+    )
     await generator.aclose()
 
 
