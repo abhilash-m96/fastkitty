@@ -11,6 +11,7 @@ from db.tenancy_strategy import (
     _apply_row_tenant_scope,
     _stamp_row_tenant_writes,
     get_current_row_tenant_id,
+    reset_current_row_tenant_id,
     set_current_row_tenant_id,
 )
 from models.posts import BlogPost
@@ -66,12 +67,17 @@ def _make_tenant_context(
     )
 
 
-@pytest.mark.asyncio
-async def test_row_strategy_reuses_shared_engine_and_resets_context(
+def _make_settings() -> Settings:
+    return Settings.model_construct(
+        TENANCY_DB_STRATEGY="row",
+        USER_DATA_SOURCE={"type": "header"},
+    )
+
+
+def _patch_engine_factory(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> list[FakeAsyncEngine]:
     created_engines: list[FakeAsyncEngine] = []
-    registered_events: list[str] = []
 
     def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
         engine = FakeAsyncEngine(url)
@@ -84,40 +90,44 @@ async def test_row_strategy_reuses_shared_engine_and_resets_context(
 
         return _factory
 
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
+    return created_engines
+
+
+@pytest.mark.asyncio
+async def test_row_strategy_reuses_shared_engine_and_resets_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_engines = _patch_engine_factory(monkeypatch)
+    registered_events: list[str] = []
+
     def fake_listen(_: object, event_name: str, __: object) -> None:
         registered_events.append(event_name)
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
     monkeypatch.setattr("db.tenancy_strategy.event.listen", fake_listen)
 
-    strategy = RowTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="row",
-            USER_DATA_SOURCE={"type": "header"},
-        )
-    )
+    strategy = RowTenancyStrategy(_make_settings())
     tenant_one = _make_tenant_context("tenant_1")
     tenant_two = _make_tenant_context("tenant_2")
 
-    generator_one = strategy.get_session(tenant_one)
-    session_one = await anext(generator_one)
-    assert session_one.info["tenant_id"] == "tenant_1"
-    assert get_current_row_tenant_id() == "tenant_1"
+    async with strategy.get_session(tenant_one) as session_one:
+        assert session_one.info["tenant_id"] == "tenant_1"
+        assert get_current_row_tenant_id() == "tenant_1"
 
-    generator_two = strategy.get_session(tenant_two)
-    session_two = await anext(generator_two)
-    assert session_two.info["tenant_id"] == "tenant_2"
-    assert len(created_engines) == 1
-    assert registered_events == [
-        "do_orm_execute",
-        "before_flush",
-        "do_orm_execute",
-        "before_flush",
-    ]
-
-    await generator_two.aclose()
-    await generator_one.aclose()
+        async with strategy.get_session(tenant_two) as session_two:
+            assert session_two.info["tenant_id"] == "tenant_2"
+            assert len(created_engines) == 1
+            assert registered_events == [
+                "do_orm_execute",
+                "before_flush",
+                "do_orm_execute",
+                "before_flush",
+            ]
 
     with pytest.raises(RuntimeError, match="Row strategy requires a tenant context"):
         get_current_row_tenant_id()
@@ -143,7 +153,9 @@ def test_row_strategy_applies_tenant_scope_to_selects(
     tenant_token = set_current_row_tenant_id("tenant_1")
     captured: dict[str, object] = {}
 
-    def fake_with_loader_criteria(model: object, criteria: object, **kwargs: object) -> str:
+    def fake_with_loader_criteria(
+        model: object, criteria: object, **kwargs: object
+    ) -> str:
         captured["model"] = model
         captured["criteria"] = criteria
         captured["kwargs"] = kwargs
@@ -154,7 +166,9 @@ def test_row_strategy_applies_tenant_scope_to_selects(
             captured["option"] = option
             return "scoped-statement"
 
-    monkeypatch.setattr("db.tenancy_strategy.with_loader_criteria", fake_with_loader_criteria)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.with_loader_criteria", fake_with_loader_criteria
+    )
     execute_state = SimpleNamespace(
         is_select=True,
         is_column_load=False,
@@ -168,8 +182,6 @@ def test_row_strategy_applies_tenant_scope_to_selects(
     assert captured["option"] == "tenant-criteria"
     assert captured["kwargs"] == {"include_aliases": True}
 
-    from db.tenancy_strategy import reset_current_row_tenant_id
-
     reset_current_row_tenant_id(tenant_token)
 
 
@@ -181,8 +193,6 @@ def test_row_strategy_stamps_new_instances_with_tenant_id() -> None:
     _stamp_row_tenant_writes(sync_session)
 
     assert post.tenant_id == "tenant_1"
-
-    from db.tenancy_strategy import reset_current_row_tenant_id
 
     reset_current_row_tenant_id(tenant_token)
 
@@ -197,7 +207,5 @@ def test_row_strategy_rejects_cross_tenant_writes() -> None:
         ValueError, match="Row strategy detected a cross-tenant write for BlogPost"
     ):
         _stamp_row_tenant_writes(sync_session)
-
-    from db.tenancy_strategy import reset_current_row_tenant_id
 
     reset_current_row_tenant_id(tenant_token)

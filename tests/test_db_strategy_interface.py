@@ -104,7 +104,9 @@ def test_app_startup_initializes_and_exposes_selected_strategy(
 
     get_settings.cache_clear()
     main_module = importlib.reload(main_module)
-    monkeypatch.setattr(main_module, "create_tenancy_strategy", fake_create_tenancy_strategy)
+    monkeypatch.setattr(
+        main_module, "create_tenancy_strategy", fake_create_tenancy_strategy
+    )
 
     with TestClient(main_module.app) as client:
         strategy = get_app_tenancy_strategy(client.app)

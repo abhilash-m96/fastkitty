@@ -20,7 +20,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await tenancy_strategy.teardown()
-        await close_all_engines()
+        await (
+            close_all_engines()
+        )  # closes shared/foundation engines; database strategy owns its own
 
 
 app = FastAPI(
