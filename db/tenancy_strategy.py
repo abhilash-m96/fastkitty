@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
@@ -8,6 +9,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 
 from fastapi import FastAPI
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -67,6 +69,14 @@ class _DatabaseEngineEntry:
         if self.idle_event is None:
             self.idle_event = asyncio.Event()
             self.idle_event.set()
+
+
+@dataclass(slots=True)
+class _SharedSchemaEngineEntry:
+    db_uri: str
+    engine: AsyncEngine
+    session_factory: async_sessionmaker[AsyncSession]
+    pool_config: PoolConfig
 
 
 class _BasePlaceholderTenancyStrategy(TenancyStrategy):
@@ -215,8 +225,112 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         await entry.engine.dispose()
 
 
-class SchemaTenancyStrategy(_BasePlaceholderTenancyStrategy):
+class SchemaTenancyStrategy(TenancyStrategy):
     strategy_name: TenancyDBStrategy = "schema"
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self._shared_entry: _SharedSchemaEngineEntry | None = None
+        self._registry_lock = asyncio.Lock()
+
+    async def setup(self, app: FastAPI) -> None:
+        app.state.tenancy_strategy = self
+
+    @asynccontextmanager
+    async def get_session(
+        self, tenant: TenantContext
+    ) -> AsyncGenerator[AsyncSession, None]:
+        db_config = tenant.tenant_secrets.database_config
+        schema_name = _normalize_schema_name(db_config)
+        entry = await self._get_or_create_entry(db_config)
+        session = entry.session_factory()
+        try:
+            await session.execute(text(f"SET search_path TO {schema_name}, public"))
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            try:
+                await session.execute(text("RESET search_path"))
+            finally:
+                await session.close()
+
+    async def teardown(self) -> None:
+        async with self._registry_lock:
+            entry = self._shared_entry
+            self._shared_entry = None
+        if entry is not None:
+            await entry.engine.dispose()
+
+    async def _get_or_create_entry(
+        self, db_config: DatabaseConfig
+    ) -> _SharedSchemaEngineEntry:
+        db_uri = db_config.database_uri
+        async with self._registry_lock:
+            if self._shared_entry is None:
+                self._shared_entry = self._create_entry(
+                    db_uri=db_uri, db_config=db_config
+                )
+            else:
+                if self._shared_entry.db_uri != db_uri:
+                    raise ValueError(
+                        "Schema strategy requires all tenants to share the same "
+                        f"database URL, got: {db_uri}"
+                    )
+                self._validate_shared_config(
+                    entry=self._shared_entry, db_config=db_config
+                )
+            return self._shared_entry
+
+    def _create_entry(
+        self, *, db_uri: str, db_config: DatabaseConfig
+    ) -> _SharedSchemaEngineEntry:
+        pool_config = PoolConfig(
+            db_uri=db_uri,
+            pool_size=db_config.pool_size,
+            max_overflow=db_config.max_overflow,
+            pool_recycle=db_config.pool_recycle,
+            pool_pre_ping=db_config.pool_pre_ping,
+        )
+        engine = create_async_engine(
+            db_uri,
+            pool_size=pool_config.pool_size,
+            max_overflow=pool_config.max_overflow,
+            pool_recycle=pool_config.pool_recycle,
+            pool_pre_ping=pool_config.pool_pre_ping,
+            echo=False,
+        )
+        session_factory = async_sessionmaker(
+            bind=engine,
+            autoflush=False,
+            expire_on_commit=False,
+        )
+        return _SharedSchemaEngineEntry(
+            db_uri=db_uri,
+            engine=engine,
+            session_factory=session_factory,
+            pool_config=pool_config,
+        )
+
+    def _validate_shared_config(
+        self,
+        *,
+        entry: _SharedSchemaEngineEntry,
+        db_config: DatabaseConfig,
+    ) -> None:
+        expected = PoolConfig(
+            db_uri=entry.db_uri,
+            pool_size=db_config.pool_size,
+            max_overflow=db_config.max_overflow,
+            pool_recycle=db_config.pool_recycle,
+            pool_pre_ping=db_config.pool_pre_ping,
+        )
+        if entry.pool_config != expected:
+            raise ValueError(
+                "Schema strategy received conflicting pool settings for the shared "
+                f"database URL: {entry.db_uri}"
+            )
 
 
 class RowTenancyStrategy(_BasePlaceholderTenancyStrategy):
@@ -243,3 +357,12 @@ def get_app_tenancy_strategy(app: FastAPI) -> TenancyStrategy:
     if not isinstance(strategy, TenancyStrategy):
         raise RuntimeError("app.state.tenancy_strategy is not a valid tenancy strategy")
     return strategy
+
+
+def _normalize_schema_name(db_config: DatabaseConfig) -> str:
+    schema_name = db_config.schema_name
+    if not schema_name:
+        raise ValueError("Schema strategy requires database_config.schema_name")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema_name):
+        raise ValueError(f"Invalid schema_name for schema strategy: {schema_name!r}")
+    return schema_name
