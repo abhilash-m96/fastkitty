@@ -72,6 +72,39 @@ def _make_tenant_context(
     )
 
 
+def _make_settings(max_engines: int) -> Settings:
+    return Settings.model_construct(
+        TENANCY_DB_STRATEGY="database",
+        TENANCY_DATABASE_MAX_ENGINES=max_engines,
+        USER_DATA_SOURCE={"type": "header"},
+    )
+
+
+def _patch_engine_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, FakeAsyncEngine]:
+    engines_by_url: dict[str, FakeAsyncEngine] = {}
+
+    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
+        engine = FakeAsyncEngine(url)
+        engines_by_url[url] = engine
+        return engine
+
+    def fake_async_sessionmaker(**_: object):
+        def _factory() -> FakeAsyncSession:
+            return FakeAsyncSession()
+
+        return _factory
+
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
+    return engines_by_url
+
+
 @pytest.mark.asyncio
 async def test_database_strategy_reuses_engine_for_same_database_uri(
     monkeypatch: pytest.MonkeyPatch,
@@ -89,16 +122,14 @@ async def test_database_strategy_reuses_engine_for_same_database_uri(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
-
-    strategy = DatabaseTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="database",
-            TENANCY_DATABASE_MAX_ENGINES=5,
-            USER_DATA_SOURCE={"type": "header"},
-        )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
     )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
+
+    strategy = DatabaseTenancyStrategy(_make_settings(max_engines=5))
     tenant_one = _make_tenant_context(
         "tenant_1", database_uri="postgresql://db.example.com/tenant-db"
     )
@@ -106,18 +137,16 @@ async def test_database_strategy_reuses_engine_for_same_database_uri(
         "tenant_2", database_uri="postgresql://db.example.com/tenant-db"
     )
 
-    session_generator_one = strategy.get_session(tenant_one)
-    session_one = await anext(session_generator_one)
-    session_generator_two = strategy.get_session(tenant_two)
-    session_two = await anext(session_generator_two)
+    async with strategy.get_session(tenant_one) as session_one:
+        async with strategy.get_session(tenant_two) as session_two:
+            assert isinstance(session_one, FakeAsyncSession)
+            assert isinstance(session_two, FakeAsyncSession)
+            assert len(created_engines) == 1
+            assert (
+                created_engines[0].url
+                == "postgresql+asyncpg://db.example.com/tenant-db"
+            )
 
-    assert isinstance(session_one, FakeAsyncSession)
-    assert isinstance(session_two, FakeAsyncSession)
-    assert len(created_engines) == 1
-    assert created_engines[0].url == "postgresql+asyncpg://db.example.com/tenant-db"
-
-    await session_generator_one.aclose()
-    await session_generator_two.aclose()
     await strategy.teardown()
 
 
@@ -125,39 +154,22 @@ async def test_database_strategy_reuses_engine_for_same_database_uri(
 async def test_database_strategy_evicts_lru_engine_and_disposes_idle_entries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engines_by_url: dict[str, FakeAsyncEngine] = {}
+    engines_by_url = _patch_engine_factory(monkeypatch)
+    strategy = DatabaseTenancyStrategy(_make_settings(max_engines=2))
 
-    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
-        engine = FakeAsyncEngine(url)
-        engines_by_url[url] = engine
-        return engine
-
-    def fake_async_sessionmaker(**_: object):
-        def _factory() -> FakeAsyncSession:
-            return FakeAsyncSession()
-
-        return _factory
-
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
-
-    strategy = DatabaseTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="database",
-            TENANCY_DATABASE_MAX_ENGINES=2,
-            USER_DATA_SOURCE={"type": "header"},
-        )
+    tenant_one = _make_tenant_context(
+        "tenant_1", database_uri="postgresql://db/tenant_1"
     )
-    tenant_one = _make_tenant_context("tenant_1", database_uri="postgresql://db/tenant_1")
-    tenant_two = _make_tenant_context("tenant_2", database_uri="postgresql://db/tenant_2")
+    tenant_two = _make_tenant_context(
+        "tenant_2", database_uri="postgresql://db/tenant_2"
+    )
     tenant_three = _make_tenant_context(
         "tenant_3", database_uri="postgresql://db/tenant_3"
     )
 
     for tenant in (tenant_one, tenant_two, tenant_three):
-        session_generator = strategy.get_session(tenant)
-        await anext(session_generator)
-        await session_generator.aclose()
+        async with strategy.get_session(tenant):
+            pass
 
     await asyncio.sleep(0)
 
@@ -171,44 +183,26 @@ async def test_database_strategy_evicts_lru_engine_and_disposes_idle_entries(
 async def test_database_strategy_waits_for_in_flight_session_before_dispose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engines_by_url: dict[str, FakeAsyncEngine] = {}
+    engines_by_url = _patch_engine_factory(monkeypatch)
+    strategy = DatabaseTenancyStrategy(_make_settings(max_engines=1))
 
-    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
-        engine = FakeAsyncEngine(url)
-        engines_by_url[url] = engine
-        return engine
-
-    def fake_async_sessionmaker(**_: object):
-        def _factory() -> FakeAsyncSession:
-            return FakeAsyncSession()
-
-        return _factory
-
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
-
-    strategy = DatabaseTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="database",
-            TENANCY_DATABASE_MAX_ENGINES=1,
-            USER_DATA_SOURCE={"type": "header"},
-        )
+    tenant_one = _make_tenant_context(
+        "tenant_1", database_uri="postgresql://db/tenant_1"
     )
-    tenant_one = _make_tenant_context("tenant_1", database_uri="postgresql://db/tenant_1")
-    tenant_two = _make_tenant_context("tenant_2", database_uri="postgresql://db/tenant_2")
+    tenant_two = _make_tenant_context(
+        "tenant_2", database_uri="postgresql://db/tenant_2"
+    )
 
-    session_generator_one = strategy.get_session(tenant_one)
-    await anext(session_generator_one)
-    session_generator_two = strategy.get_session(tenant_two)
-    await anext(session_generator_two)
-    await session_generator_two.aclose()
+    async with strategy.get_session(tenant_one) as _:
+        async with strategy.get_session(tenant_two) as _:
+            pass
+
+        await asyncio.sleep(0)
+        # tenant_one session still open — dispose must not have run yet
+        assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
+
     await asyncio.sleep(0)
-
-    assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
-
-    await session_generator_one.aclose()
-    await asyncio.sleep(0)
-
+    # tenant_one session now closed — dispose should have run
     assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 1
 
     await strategy.teardown()
@@ -231,8 +225,12 @@ async def test_database_strategy_handles_concurrent_requests_with_shared_engine(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
 
     strategy = DatabaseTenancyStrategy(
         Settings.model_construct(
@@ -249,14 +247,15 @@ async def test_database_strategy_handles_concurrent_requests_with_shared_engine(
     )
 
     async def run_request(tenant: TenantContext) -> None:
-        generator = strategy.get_session(tenant)
-        session = await anext(generator)
-        assert isinstance(session, FakeAsyncSession)
-        await asyncio.sleep(0)
-        await generator.aclose()
+        async with strategy.get_session(tenant) as session:
+            assert isinstance(session, FakeAsyncSession)
+            await asyncio.sleep(0)
 
     await asyncio.gather(
-        *(run_request(shared_tenant_one if index % 2 == 0 else shared_tenant_two) for index in range(20))
+        *(
+            run_request(shared_tenant_one if index % 2 == 0 else shared_tenant_two)
+            for index in range(20)
+        )
     )
 
     assert len(created_engines) == 1
@@ -282,8 +281,12 @@ async def test_database_strategy_eviction_under_concurrency_keeps_requests_safe(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
 
     strategy = DatabaseTenancyStrategy(
         Settings.model_construct(
@@ -292,28 +295,33 @@ async def test_database_strategy_eviction_under_concurrency_keeps_requests_safe(
             USER_DATA_SOURCE={"type": "header"},
         )
     )
-    tenant_one = _make_tenant_context("tenant_1", database_uri="postgresql://db/tenant_1")
-    tenant_two = _make_tenant_context("tenant_2", database_uri="postgresql://db/tenant_2")
-    tenant_three = _make_tenant_context("tenant_3", database_uri="postgresql://db/tenant_3")
+    tenant_one = _make_tenant_context(
+        "tenant_1", database_uri="postgresql://db/tenant_1"
+    )
+    tenant_two = _make_tenant_context(
+        "tenant_2", database_uri="postgresql://db/tenant_2"
+    )
+    tenant_three = _make_tenant_context(
+        "tenant_3", database_uri="postgresql://db/tenant_3"
+    )
 
-    generator_one = strategy.get_session(tenant_one)
-    session_one = await anext(generator_one)
-    assert isinstance(session_one, BlockingAsyncSession)
+    # Keep tenant_one session open while eviction happens
+    async with strategy.get_session(tenant_one) as session_one:
+        assert isinstance(session_one, BlockingAsyncSession)
 
-    generator_two = strategy.get_session(tenant_two)
-    await anext(generator_two)
-    await generator_two.aclose()
+        async with strategy.get_session(tenant_two):
+            pass
 
-    generator_three = strategy.get_session(tenant_three)
-    await anext(generator_three)
-    await generator_three.aclose()
-    await asyncio.sleep(0)
+        async with strategy.get_session(tenant_three):
+            pass
 
-    assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
+        await asyncio.sleep(0)
+        # tenant_one still in flight — must not be disposed yet
+        assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
 
-    await generator_one.aclose()
     await close_events["postgresql+asyncpg://db/tenant_1"].wait()
     await asyncio.sleep(0)
-
+    # tenant_one session closed — dispose should have run
     assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 1
+
     await strategy.teardown()

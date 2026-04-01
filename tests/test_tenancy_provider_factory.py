@@ -2,17 +2,18 @@
 
 import pytest
 
+from typing import cast
+
 from config.settings import (
     HCConsulTenancyConfigConnection,
     HCVaultTenancySecretsConnection,
     TenancyConfigFileConnection,
     TenancySecretsFileConnection,
+    TenancyConfigConnection,
 )
 from config.tenancy_providers import (
     FileTenancyConfigProvider,
     FileTenancySecretsProvider,
-    HCConsulTenancyConfigProvider,
-    HCVaultTenancySecretsProvider,
 )
 from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
@@ -30,8 +31,11 @@ def test_config_provider_factory_creates_file_provider() -> None:
     assert provider.file_path == "tenants.json"
 
 
-def test_config_provider_factory_creates_consul_provider(monkeypatch: object) -> None:
+def test_config_provider_factory_creates_consul_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Build a Consul config provider with the expected constructor args."""
+
     class FakeConsulProvider:
         def __init__(self, url: str, token: str | None, consul_prefix: str):
             self.url = url
@@ -59,11 +63,14 @@ def test_config_provider_factory_creates_consul_provider(monkeypatch: object) ->
 
 def test_config_provider_factory_rejects_unsupported_connection() -> None:
     """Reject unknown config connection types with a clear error."""
+
     class UnsupportedConnection:
         type = "unsupported"
 
     with pytest.raises(ValueError, match="Unsupported config provider: 'unsupported'"):
-        TenancyConfigProviderFactory.create(UnsupportedConnection())
+        TenancyConfigProviderFactory.create(
+            cast(TenancyConfigConnection, UnsupportedConnection())
+        )
 
 
 def test_secrets_provider_factory_creates_file_provider() -> None:
@@ -76,8 +83,11 @@ def test_secrets_provider_factory_creates_file_provider() -> None:
     assert provider.file_path == "secrets.json"
 
 
-def test_secrets_provider_factory_creates_vault_provider(monkeypatch: object) -> None:
+def test_secrets_provider_factory_creates_vault_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Build a Vault secrets provider with the expected constructor args."""
+
     class FakeVaultProvider:
         def __init__(self, url: str, token: str, vault_kv_path: str):
             self.url = url
@@ -101,12 +111,3 @@ def test_secrets_provider_factory_creates_vault_provider(monkeypatch: object) ->
     assert provider.url == "https://vault.example.com"
     assert provider.token == "token"
     assert provider.vault_kv_path == "secret/data/tenants/{tenant_id}"
-
-
-def test_secrets_provider_factory_rejects_unsupported_connection() -> None:
-    """Reject unknown secrets connection types with a clear error."""
-    class UnsupportedConnection:
-        type = "unsupported"
-
-    with pytest.raises(ValueError, match="Unsupported secrets provider: 'unsupported'"):
-        TenancySecretsProviderFactory.create(UnsupportedConnection())

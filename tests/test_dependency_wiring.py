@@ -1,8 +1,12 @@
 """Dependency-wiring regression tests."""
 
+from contextlib import asynccontextmanager
+
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
+from unittest.mock import MagicMock
 
 from api.deps.db import get_db
 from db.tenancy_strategy import TenantContext
@@ -32,18 +36,23 @@ def test_missing_tenant_fails_before_db_session_strategy_is_resolved() -> None:
         db_module.get_app_tenancy_strategy = original
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Tenant ID is required (X-Tenant-ID header missing)"
+    assert (
+        response.json()["detail"]
+        == "Tenant ID is required (X-Tenant-ID header missing)"
+    )
     assert strategy_calls["count"] == 0
 
 
 @pytest.mark.asyncio
-async def test_get_db_closes_strategy_session_generator() -> None:
-    request = type("Request", (), {"app": FastAPI()})()
-    tenant_context = type("TenantContext", (), {})()
+async def test_get_db_closes_strategy_session_on_exit() -> None:
+    request = MagicMock(spec=Request)
+    request.app = FastAPI()
+    tenant_context = MagicMock(spec=TenantContext)
     close_state = {"closed": False}
     session = object()
 
     class FakeStrategy:
+        @asynccontextmanager
         async def get_session(self, _: object):
             try:
                 yield session

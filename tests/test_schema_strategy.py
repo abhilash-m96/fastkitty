@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from typing import cast
 
 from config.settings import Settings
 from db.tenancy_strategy import SchemaTenancyStrategy, TenantContext
@@ -66,10 +67,16 @@ def _make_tenant_context(
     )
 
 
-@pytest.mark.asyncio
-async def test_schema_strategy_sets_and_resets_search_path(
+def _make_settings() -> Settings:
+    return Settings.model_construct(
+        TENANCY_DB_STRATEGY="schema",
+        USER_DATA_SOURCE={"type": "header"},
+    )
+
+
+def _patch_engine_factory(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> list[FakeAsyncEngine]:
     created_engines: list[FakeAsyncEngine] = []
 
     def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
@@ -83,27 +90,30 @@ async def test_schema_strategy_sets_and_resets_search_path(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
-
-    strategy = SchemaTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="schema",
-            USER_DATA_SOURCE={"type": "header"},
-        )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
     )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
+    return created_engines
+
+
+@pytest.mark.asyncio
+async def test_schema_strategy_sets_and_resets_search_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_engines = _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
     tenant = _make_tenant_context("tenant_1", schema_name="tenant_one")
 
-    generator = strategy.get_session(tenant)
-    session = await anext(generator)
-
-    assert session.statements == ['SET search_path TO tenant_one, public']
-
-    await generator.aclose()
+    async with strategy.get_session(tenant) as raw_session:
+        session = cast(FakeAsyncSession, raw_session)
+        assert session.statements == ["SET search_path TO tenant_one, public"]
 
     assert session.statements == [
-        'SET search_path TO tenant_one, public',
-        'RESET search_path',
+        "SET search_path TO tenant_one, public",
+        "RESET search_path",
     ]
     assert session.close_calls == 1
     assert len(created_engines) == 1
@@ -115,42 +125,19 @@ async def test_schema_strategy_sets_and_resets_search_path(
 async def test_schema_strategy_reuses_shared_engine_for_multiple_tenants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    created_engines: list[FakeAsyncEngine] = []
-
-    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
-        engine = FakeAsyncEngine(url)
-        created_engines.append(engine)
-        return engine
-
-    def fake_async_sessionmaker(**_: object):
-        def _factory() -> FakeAsyncSession:
-            return FakeAsyncSession()
-
-        return _factory
-
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
-
-    strategy = SchemaTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="schema",
-            USER_DATA_SOURCE={"type": "header"},
-        )
-    )
+    created_engines = _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
     tenant_one = _make_tenant_context("tenant_1", schema_name="tenant_one")
     tenant_two = _make_tenant_context("tenant_2", schema_name="tenant_two")
 
-    generator_one = strategy.get_session(tenant_one)
-    session_one = await anext(generator_one)
-    generator_two = strategy.get_session(tenant_two)
-    session_two = await anext(generator_two)
+    async with strategy.get_session(tenant_one) as raw_session_one:
+        async with strategy.get_session(tenant_two) as raw_session_two:
+            session_one = cast(FakeAsyncSession, raw_session_one)
+            session_two = cast(FakeAsyncSession, raw_session_two)
+            assert len(created_engines) == 1
+            assert session_one.statements == ["SET search_path TO tenant_one, public"]
+            assert session_two.statements == ["SET search_path TO tenant_two, public"]
 
-    assert len(created_engines) == 1
-    assert session_one.statements == ['SET search_path TO tenant_one, public']
-    assert session_two.statements == ['SET search_path TO tenant_two, public']
-
-    await generator_one.aclose()
-    await generator_two.aclose()
     await strategy.teardown()
 
 
@@ -158,48 +145,25 @@ async def test_schema_strategy_reuses_shared_engine_for_multiple_tenants(
 async def test_schema_strategy_rejects_invalid_schema_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "db.tenancy_strategy.create_async_engine",
-        lambda url, **_: FakeAsyncEngine(url),
-    )
-    monkeypatch.setattr(
-        "db.tenancy_strategy.async_sessionmaker",
-        lambda **_: (lambda: FakeAsyncSession()),
-    )
-
-    strategy = SchemaTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="schema",
-            USER_DATA_SOURCE={"type": "header"},
-        )
-    )
+    _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
     tenant = _make_tenant_context("tenant_1", schema_name="tenant-one")
 
     with pytest.raises(
         ValueError, match="Invalid schema_name for schema strategy: 'tenant-one'"
     ):
-        await anext(strategy.get_session(tenant))
+        async with strategy.get_session(tenant):
+            pass
+
+    await strategy.teardown()
 
 
 @pytest.mark.asyncio
 async def test_schema_strategy_requires_shared_database_uri(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "db.tenancy_strategy.create_async_engine",
-        lambda url, **_: FakeAsyncEngine(url),
-    )
-    monkeypatch.setattr(
-        "db.tenancy_strategy.async_sessionmaker",
-        lambda **_: (lambda: FakeAsyncSession()),
-    )
-
-    strategy = SchemaTenancyStrategy(
-        Settings.model_construct(
-            TENANCY_DB_STRATEGY="schema",
-            USER_DATA_SOURCE={"type": "header"},
-        )
-    )
+    _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
     tenant_one = _make_tenant_context(
         "tenant_1",
         database_uri="postgresql://shared-db/app",
@@ -211,16 +175,14 @@ async def test_schema_strategy_requires_shared_database_uri(
         schema_name="tenant_two",
     )
 
-    generator_one = strategy.get_session(tenant_one)
-    await anext(generator_one)
+    async with strategy.get_session(tenant_one):
+        with pytest.raises(
+            ValueError,
+            match="Schema strategy requires all tenants to share the same database URL",
+        ):
+            async with strategy.get_session(tenant_two):
+                pass
 
-    with pytest.raises(
-        ValueError,
-        match="Schema strategy requires all tenants to share the same database URL",
-    ):
-        await anext(strategy.get_session(tenant_two))
-
-    await generator_one.aclose()
     await strategy.teardown()
 
 
@@ -239,8 +201,12 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
 
     strategy = SchemaTenancyStrategy(
         Settings.model_construct(
@@ -254,10 +220,9 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
     ]
 
     async def run_request(tenant: TenantContext) -> None:
-        generator = strategy.get_session(tenant)
-        session = await anext(generator)
-        await asyncio.sleep(0)
-        await generator.aclose()
+        async with strategy.get_session(tenant) as raw_session:
+            await asyncio.sleep(0)
+        session = cast(FakeAsyncSession, raw_session)
         observed_statements.append((tenant.tenant_id, session.statements))
 
     await asyncio.gather(*(run_request(tenants[index % 2]) for index in range(20)))

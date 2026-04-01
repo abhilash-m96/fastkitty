@@ -1,46 +1,23 @@
 """Unit tests for database dependency helpers and service wiring."""
 
-from types import SimpleNamespace
+from contextlib import asynccontextmanager
 from unittest.mock import Mock
-
+from unittest.mock import MagicMock
+from starlette.requests import Request
+from fastapi import FastAPI
 import pytest
 
-from api.deps.db import build_db_uri, get_blog_posts_service, get_db
+from api.deps.db import get_blog_posts_service, get_db
+from api.deps.tenancy import get_tenant_context
 from db.tenancy_strategy import TenantContext
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 from services.blog_posts_service import BlogPostsService
 
 
-def test_build_db_uri_prefers_existing_database_uri() -> None:
-    """Prefer the direct URI when tenant secrets already provide one."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-        database_uri="sqlite:///tmp.db",
-    )
-
-    assert build_db_uri(config) == "sqlite:///tmp.db"
-
-
-def test_build_db_uri_falls_back_to_computed_uri() -> None:
-    """Compose the URI from discrete DB fields when no URI is present."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-    )
-    config.database_uri = None
-
-    assert build_db_uri(config) == "postgresql+asyncpg://user:password@localhost:5432/db"
-
-
 @pytest.mark.asyncio
-async def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
+async def test_get_db_delegates_to_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Pass the resolved tenant context through to the selected strategy."""
     tenant_context = TenantContext(
         tenant_id="tenant_1",
@@ -61,26 +38,33 @@ async def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
         ),
     )
     session = Mock(name="session")
-    request = SimpleNamespace(app=SimpleNamespace())
-    fake_strategy = Mock(name="strategy")
+    request = MagicMock(spec=Request)
+    request.app = FastAPI()
+    captured: list[TenantContext] = []
 
+    @asynccontextmanager
     async def fake_get_session(resolved_tenant_context: TenantContext):
-        assert resolved_tenant_context is tenant_context
+        captured.append(resolved_tenant_context)
         yield session
 
+    fake_strategy = Mock(name="strategy")
     fake_strategy.get_session = fake_get_session
-    monkeypatch.setattr("api.deps.db.get_app_tenancy_strategy", lambda app: fake_strategy)
+    monkeypatch.setattr(
+        "api.deps.db.get_app_tenancy_strategy", lambda app: fake_strategy
+    )
 
     generator = get_db(request, tenant_context)
     yielded_session = await anext(generator)
 
     assert yielded_session is session
+    assert len(captured) == 1
+    assert captured[0] is tenant_context
+
     await generator.aclose()
 
 
 def test_get_tenant_context_bundles_config_and_secrets() -> None:
-    from api.deps.tenancy import get_tenant_context
-
+    """Bundle config and secrets into a TenantContext."""
     tenant_config = TenantConfig(
         tenant_id="tenant_1",
         display_name="Tenant One",
