@@ -1,65 +1,81 @@
-from contextlib import contextmanager
-from functools import lru_cache
-from sqlalchemy.engine import Engine
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from typing import Generator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 
-@lru_cache(maxsize=100)
-def get_engine(
-    db_uri: str,
-    pool_size: int,
-    max_overflow: int,
-    pool_recycle: int,
-    pool_pre_ping: bool,
-) -> Engine:
+@dataclass(frozen=True)
+class PoolConfig:
+    db_uri: str
+    pool_size: int
+    max_overflow: int
+    pool_recycle: int
+    pool_pre_ping: bool
+
+
+# TODO: replace with bounded LRU registry in feat/database-strategy
+_engines: dict[PoolConfig, AsyncEngine] = {}
+_session_factories: dict[PoolConfig, async_sessionmaker[AsyncSession]] = {}
+
+
+def get_engine(config: PoolConfig) -> AsyncEngine:
     """
-    Create and cache a database engine.
+    Create and cache an async database engine.
 
-    Caches based on both URI and pool configuration. If the same URI
-    is requested with different pool settings, separate engines are created.
-
-    Args:
-        db_uri: Database connection URI
-        pool_size: Minimum number of connections in pool
-        max_overflow: Additional connections under load
-        pool_recycle: Recycle connections after N seconds
-        pool_pre_ping: Verify connections before use
-
-    Returns:
-        Cached SQLAlchemy Engine instance
+    Caches by full pool config. Same URI with different pool settings
+    produces separate engines.
     """
-    return create_engine(
-        db_uri,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        pool_recycle=pool_recycle,
-        pool_pre_ping=pool_pre_ping,
-        echo=False,
-    )
+    if config not in _engines:
+        _engines[config] = create_async_engine(
+            config.db_uri,
+            pool_size=config.pool_size,
+            max_overflow=config.max_overflow,
+            pool_recycle=config.pool_recycle,
+            pool_pre_ping=config.pool_pre_ping,
+            echo=False,
+        )
+    return _engines[config]
 
 
-def create_session(
-    db_uri: str,
-    pool_size: int,
-    max_overflow: int,
-    pool_recycle: int,
-    pool_pre_ping: bool,
-) -> Generator[Session, None, None]:
-    engine = get_engine(
-        db_uri=db_uri,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        pool_recycle=pool_recycle,
-        pool_pre_ping=pool_pre_ping,
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = SessionLocal()
+def get_session_factory(config: PoolConfig) -> async_sessionmaker[AsyncSession]:
+    if config not in _session_factories:
+        engine = get_engine(config)
+        _session_factories[config] = async_sessionmaker(
+            bind=engine,
+            autoflush=False,
+            expire_on_commit=False,
+        )
+    return _session_factories[config]
+
+
+@asynccontextmanager
+async def create_session(config: PoolConfig) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Provide a request-scoped async session.
+
+    Rolls back on exception, always closes on exit.
+    """
+    factory = get_session_factory(config)
+    session = factory()
     try:
         yield session
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()
+
+
+async def close_all_engines() -> None:
+    """Dispose all cached engines. Call during app shutdown."""
+    cached_engines = list(_engines.values())
+    _session_factories.clear()
+    _engines.clear()
+    for engine in cached_engines:
+        await engine.dispose()
