@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal, Union
 
-from schemas.tenancy import DatabaseConfig
+from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 
 
 class TenancyConfigFileConnection(BaseModel):
@@ -118,6 +118,11 @@ class Settings(BaseSettings):
 
     TENANCY_SECRETS_CONNECTION: TenancySecretsConnection = Field(
         default=TenancySecretsFileConnection()
+    )
+
+    TENANCY_DB_STRATEGY: TenancyDBStrategy = Field(
+        default="database",
+        description="Database multi-tenancy strategy selected at startup",
     )
 
     # User data provider

@@ -1,4 +1,4 @@
-from typing import Any, Optional, Self
+from typing import Any, Literal, Optional, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -65,6 +65,9 @@ class DatabaseConfig(BaseModel):
 FeatureConfig = dict[
     str, Any
 ]  # Free-form per-feature config map. Keys/values are user-defined.
+
+
+TenancyDBStrategy = Literal["database", "schema", "row"]
 
 
 class TenantConfig(BaseModel):

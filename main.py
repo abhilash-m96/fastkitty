@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from api.routes.v1.entry import v1_router as v1_router
 from config.settings import get_settings
+from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
 from db.session import close_all_engines
 
 settings = get_settings()
@@ -11,6 +12,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_tenancy_strategy_startup(settings)
     try:
         yield
     finally:

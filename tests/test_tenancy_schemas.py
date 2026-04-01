@@ -95,3 +95,17 @@ def test_database_config_preserves_non_postgresql_uri() -> None:
     )
 
     assert config.database_uri == "sqlite:///custom.db"
+
+
+def test_database_config_preserves_schema_name() -> None:
+    """Keep the schema name available for schema-per-tenant validation."""
+    config = DatabaseConfig(
+        host="localhost",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        schema_name="tenant_one",
+    )
+
+    assert config.schema_name == "tenant_one"
