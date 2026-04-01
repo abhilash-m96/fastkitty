@@ -6,17 +6,23 @@ from api.routes.v1.entry import v1_router as v1_router
 from config.settings import get_settings
 from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
 from db.session import close_all_engines
+from db.tenancy_strategy import create_tenancy_strategy
 
 settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     validate_tenancy_strategy_startup(settings)
+    tenancy_strategy = create_tenancy_strategy(settings)
+    await tenancy_strategy.setup(app)
     try:
         yield
     finally:
-        await close_all_engines()
+        await tenancy_strategy.teardown()
+        await (
+            close_all_engines()
+        )  # closes shared/foundation engines; database strategy owns its own
 
 
 app = FastAPI(
