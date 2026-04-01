@@ -1,9 +1,10 @@
 """Unit tests for database dependency helpers and service wiring."""
 
 from contextlib import asynccontextmanager
-from types import SimpleNamespace
 from unittest.mock import Mock
-
+from unittest.mock import MagicMock
+from starlette.requests import Request
+from fastapi import FastAPI
 import pytest
 
 from api.deps.db import get_blog_posts_service, get_db
@@ -37,7 +38,8 @@ async def test_get_db_delegates_to_strategy(
         ),
     )
     session = Mock(name="session")
-    request = SimpleNamespace(app=SimpleNamespace())
+    request = MagicMock(spec=Request)
+    request.app = FastAPI()
     captured: list[TenantContext] = []
 
     @asynccontextmanager

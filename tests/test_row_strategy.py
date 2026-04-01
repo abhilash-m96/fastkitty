@@ -1,6 +1,7 @@
 """Row-per-tenant strategy tests."""
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -8,6 +9,8 @@ from config.settings import Settings
 from db.tenancy_strategy import (
     RowTenancyStrategy,
     TenantContext,
+    _ExecuteState,
+    _SyncSessionLike,
     _apply_row_tenant_scope,
     _stamp_row_tenant_writes,
     get_current_row_tenant_id,
@@ -136,11 +139,14 @@ async def test_row_strategy_reuses_shared_engine_and_resets_context(
 
 
 def test_row_strategy_requires_tenant_context_for_reads() -> None:
-    execute_state = SimpleNamespace(
-        is_select=True,
-        is_column_load=False,
-        is_relationship_load=False,
-        statement=SimpleNamespace(options=lambda *args: args),
+    execute_state = cast(
+        _ExecuteState,
+        SimpleNamespace(
+            is_select=True,
+            is_column_load=False,
+            is_relationship_load=False,
+            statement=SimpleNamespace(options=lambda *args: args),
+        ),
     )
 
     with pytest.raises(RuntimeError, match="Row strategy requires a tenant context"):
@@ -169,11 +175,14 @@ def test_row_strategy_applies_tenant_scope_to_selects(
     monkeypatch.setattr(
         "db.tenancy_strategy.with_loader_criteria", fake_with_loader_criteria
     )
-    execute_state = SimpleNamespace(
-        is_select=True,
-        is_column_load=False,
-        is_relationship_load=False,
-        statement=FakeStatement(),
+    execute_state = cast(
+        _ExecuteState,
+        SimpleNamespace(
+            is_select=True,
+            is_column_load=False,
+            is_relationship_load=False,
+            statement=FakeStatement(),
+        ),
     )
 
     _apply_row_tenant_scope(execute_state)
@@ -188,7 +197,10 @@ def test_row_strategy_applies_tenant_scope_to_selects(
 def test_row_strategy_stamps_new_instances_with_tenant_id() -> None:
     tenant_token = set_current_row_tenant_id("tenant_1")
     post = BlogPost(title="Title", content="Body", author="Author")
-    sync_session = SimpleNamespace(new=[post], dirty=[])
+    sync_session = cast(
+        _SyncSessionLike,
+        SimpleNamespace(new=[post], dirty=[]),
+    )
 
     _stamp_row_tenant_writes(sync_session)
 
@@ -201,7 +213,10 @@ def test_row_strategy_rejects_cross_tenant_writes() -> None:
     tenant_token = set_current_row_tenant_id("tenant_1")
     post = BlogPost(title="Title", content="Body", author="Author")
     post.tenant_id = "tenant_2"
-    sync_session = SimpleNamespace(new=[], dirty=[post])
+    sync_session = cast(
+        _SyncSessionLike,
+        SimpleNamespace(new=[], dirty=[post]),
+    )
 
     with pytest.raises(
         ValueError, match="Row strategy detected a cross-tenant write for BlogPost"
