@@ -1,27 +1,24 @@
 from typing import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.session import create_session, PoolConfig
-from schemas.tenancy import TenantSecrets
+from db.tenancy_strategy import (
+    TenantContext,
+    TenancyStrategy,
+    get_app_tenancy_strategy,
+)
 from services.blog_posts_service import BlogPostsService
-from api.deps.tenancy import get_tenant_secrets
+from api.deps.tenancy import get_tenant_context
 
 
 async def get_db(
-    tenant_secrets: TenantSecrets = Depends(get_tenant_secrets),
+    request: Request,
+    tenant_context: TenantContext = Depends(get_tenant_context),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Yield a request-scoped async DB session for the current tenant."""
-    db_config = tenant_secrets.database_config
-    config = PoolConfig(
-        db_uri=db_config.database_uri,
-        pool_size=db_config.pool_size,
-        max_overflow=db_config.max_overflow,
-        pool_recycle=db_config.pool_recycle,
-        pool_pre_ping=db_config.pool_pre_ping,
-    )
-    async with create_session(config) as session:
+    """Yield a request-scoped DB session via the active tenancy strategy."""
+    strategy: TenancyStrategy = get_app_tenancy_strategy(request.app)
+    async with strategy.get_session(tenant_context) as session:
         yield session
 
 
