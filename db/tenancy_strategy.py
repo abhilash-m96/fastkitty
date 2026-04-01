@@ -24,12 +24,7 @@ from sqlalchemy.ext.asyncio import (
 from config.settings import Settings
 from db.session import PoolConfig
 from models.base import TenantScopedModel
-from schemas.tenancy import (
-    DatabaseConfig,
-    TenancyDBStrategy,
-    TenantConfig,
-    TenantSecrets,
-)
+from schemas.tenancy import DatabaseConfig, TenancyDBStrategy, TenantDBContext
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +47,6 @@ _RESERVED_SCHEMA_NAMES: frozenset[str] = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class TenantContext:
-    """Request-scoped tenant information shared with DB strategies."""
-
-    tenant_id: str
-    tenant_config: TenantConfig
-    tenant_secrets: TenantSecrets
-
-
 class TenancyStrategy(ABC):
     """Async contract for tenancy-aware DB session resolution."""
 
@@ -76,7 +62,7 @@ class TenancyStrategy(ABC):
 
     @abstractmethod
     def get_session(
-        self, tenant: TenantContext
+        self, tenant_db_context: TenantDBContext
     ) -> AbstractAsyncContextManager[AsyncSession]:
         """Return a context manager yielding a request-scoped session."""
 
@@ -111,25 +97,6 @@ _current_row_tenant_id: ContextVar[str | None] = ContextVar(
 )
 
 
-class _BasePlaceholderTenancyStrategy(TenancyStrategy):
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-
-    async def setup(self, app: FastAPI) -> None:
-        app.state.tenancy_strategy = self
-
-    async def teardown(self) -> None:
-        return None
-
-    # TODO fixme not necessary to get tenant config and only tenant secrets should suffice; fix this in all concrete impls
-    def get_session(
-        self, tenant: TenantContext
-    ) -> AbstractAsyncContextManager[AsyncSession]:
-        raise NotImplementedError(
-            f"{self.strategy_name!r} tenancy session acquisition is not implemented yet"
-        )
-
-
 class DatabaseTenancyStrategy(TenancyStrategy):
     strategy_name: TenancyDBStrategy = "database"
 
@@ -144,9 +111,9 @@ class DatabaseTenancyStrategy(TenancyStrategy):
 
     @asynccontextmanager
     async def get_session(
-        self, tenant: TenantContext
+        self, tenant_db_context: TenantDBContext
     ) -> AsyncGenerator[AsyncSession, None]:
-        db_config = tenant.tenant_secrets.database_config
+        db_config = tenant_db_context.db_config
         entry = await self._acquire_entry(db_config)
         # session creation can fail (e.g. pool exhausted, driver error).
         # _release_entry must run regardless — it decrements active_sessions and
@@ -389,9 +356,9 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
 
     @asynccontextmanager
     async def get_session(
-        self, tenant: TenantContext
+        self, tenant_db_context: TenantDBContext
     ) -> AsyncGenerator[AsyncSession, None]:
-        db_config = tenant.tenant_secrets.database_config
+        db_config = tenant_db_context.db_config
         # _normalize_schema_name now also rejects reserved PostgreSQL
         # schema names (public, pg_catalog, information_schema, etc.) that pass
         # the identifier regex but would silently redirect queries to the wrong
@@ -433,14 +400,14 @@ class RowTenancyStrategy(_SharedEngineTenancyStrategy):
 
     @asynccontextmanager
     async def get_session(
-        self, tenant: TenantContext
+        self, tenant_db_context: TenantDBContext
     ) -> AsyncGenerator[AsyncSession, None]:
-        db_config = tenant.tenant_secrets.database_config
+        db_config = tenant_db_context.db_config
         entry = await self._get_or_create_entry(db_config, strategy_name="Row")
         session = entry.session_factory()
         _configure_row_session(session)
-        token = set_current_row_tenant_id(tenant.tenant_id)
-        session.info["tenant_id"] = tenant.tenant_id
+        token = set_current_row_tenant_id(tenant_db_context.tenant_id)
+        session.info["tenant_id"] = tenant_db_context.tenant_id
         try:
             yield session
         except Exception:

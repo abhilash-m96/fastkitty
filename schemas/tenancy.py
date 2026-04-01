@@ -1,5 +1,5 @@
+from dataclasses import dataclass
 from typing import Any, Literal, Optional, Self
-
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -89,6 +89,14 @@ class TenantSecrets(BaseModel):
     database_config: DatabaseConfig = Field(
         ..., description="The database secret configuration for the tenant"
     )
+
+
+@dataclass(frozen=True, slots=True)
+class TenantDBContext(BaseModel):
+    """Request-scoped tenant information shared with DB strategies."""
+
+    tenant_id: str
+    db_config: DatabaseConfig
 
 
 class TenantMetadata(BaseModel):
