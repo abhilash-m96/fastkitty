@@ -6,10 +6,13 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar, Token
+from typing import Any, Protocol, Iterable
 from dataclasses import dataclass
 
 from fastapi import FastAPI
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -19,6 +22,7 @@ from sqlalchemy.ext.asyncio import (
 
 from config.settings import Settings
 from db.session import PoolConfig
+from models.base import TenantScopedModel
 from schemas.tenancy import (
     DatabaseConfig,
     TenancyDBStrategy,
@@ -72,11 +76,18 @@ class _DatabaseEngineEntry:
 
 
 @dataclass(slots=True)
-class _SharedSchemaEngineEntry:
+class _SharedEngineEntry:
+    """Shared engine entry used by both schema and row strategies."""
+
     db_uri: str
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     pool_config: PoolConfig
+
+
+_current_row_tenant_id: ContextVar[str | None] = ContextVar(
+    "current_row_tenant_id", default=None
+)
 
 
 class _BasePlaceholderTenancyStrategy(TenancyStrategy):
@@ -225,36 +236,21 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         await entry.engine.dispose()
 
 
-class SchemaTenancyStrategy(TenancyStrategy):
-    strategy_name: TenancyDBStrategy = "schema"
+class _SharedEngineTenancyStrategy(TenancyStrategy):
+    """
+    Base for strategies that share one engine across all tenants.
+
+    Owns engine lifecycle: creation, pool config validation, and disposal.
+    Subclasses implement get_session with their own tenant isolation mechanism.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._shared_entry: _SharedSchemaEngineEntry | None = None
+        self._shared_entry: _SharedEngineEntry | None = None
         self._registry_lock = asyncio.Lock()
 
     async def setup(self, app: FastAPI) -> None:
         app.state.tenancy_strategy = self
-
-    @asynccontextmanager
-    async def get_session(
-        self, tenant: TenantContext
-    ) -> AsyncGenerator[AsyncSession, None]:
-        db_config = tenant.tenant_secrets.database_config
-        schema_name = _normalize_schema_name(db_config)
-        entry = await self._get_or_create_entry(db_config)
-        session = entry.session_factory()
-        try:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            try:
-                await session.execute(text("RESET search_path"))
-            finally:
-                await session.close()
 
     async def teardown(self) -> None:
         async with self._registry_lock:
@@ -264,8 +260,8 @@ class SchemaTenancyStrategy(TenancyStrategy):
             await entry.engine.dispose()
 
     async def _get_or_create_entry(
-        self, db_config: DatabaseConfig
-    ) -> _SharedSchemaEngineEntry:
+        self, db_config: DatabaseConfig, *, strategy_name: str
+    ) -> _SharedEngineEntry:
         db_uri = db_config.database_uri
         async with self._registry_lock:
             if self._shared_entry is None:
@@ -275,8 +271,8 @@ class SchemaTenancyStrategy(TenancyStrategy):
             else:
                 if self._shared_entry.db_uri != db_uri:
                     raise ValueError(
-                        "Schema strategy requires all tenants to share the same "
-                        f"database URL, got: {db_uri}"
+                        f"{strategy_name} strategy requires all tenants to share the "
+                        f"same database URL, got: {db_uri}"
                     )
                 self._validate_shared_config(
                     entry=self._shared_entry, db_config=db_config
@@ -285,7 +281,7 @@ class SchemaTenancyStrategy(TenancyStrategy):
 
     def _create_entry(
         self, *, db_uri: str, db_config: DatabaseConfig
-    ) -> _SharedSchemaEngineEntry:
+    ) -> _SharedEngineEntry:
         pool_config = PoolConfig(
             db_uri=db_uri,
             pool_size=db_config.pool_size,
@@ -306,7 +302,7 @@ class SchemaTenancyStrategy(TenancyStrategy):
             autoflush=False,
             expire_on_commit=False,
         )
-        return _SharedSchemaEngineEntry(
+        return _SharedEngineEntry(
             db_uri=db_uri,
             engine=engine,
             session_factory=session_factory,
@@ -316,7 +312,7 @@ class SchemaTenancyStrategy(TenancyStrategy):
     def _validate_shared_config(
         self,
         *,
-        entry: _SharedSchemaEngineEntry,
+        entry: _SharedEngineEntry,
         db_config: DatabaseConfig,
     ) -> None:
         expected = PoolConfig(
@@ -328,13 +324,56 @@ class SchemaTenancyStrategy(TenancyStrategy):
         )
         if entry.pool_config != expected:
             raise ValueError(
-                "Schema strategy received conflicting pool settings for the shared "
-                f"database URL: {entry.db_uri}"
+                f"{self.strategy_name} strategy received conflicting pool settings "
+                f"for the shared database URL: {entry.db_uri}"
             )
 
 
-class RowTenancyStrategy(_BasePlaceholderTenancyStrategy):
+class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
+    strategy_name: TenancyDBStrategy = "schema"
+
+    @asynccontextmanager
+    async def get_session(
+        self, tenant: TenantContext
+    ) -> AsyncGenerator[AsyncSession, None]:
+        db_config = tenant.tenant_secrets.database_config
+        schema_name = _normalize_schema_name(db_config)
+        entry = await self._get_or_create_entry(db_config, strategy_name="Schema")
+        session = entry.session_factory()
+        try:
+            await session.execute(text(f"SET search_path TO {schema_name}, public"))
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            try:
+                await session.execute(text("RESET search_path"))
+            finally:
+                await session.close()
+
+
+class RowTenancyStrategy(_SharedEngineTenancyStrategy):
     strategy_name: TenancyDBStrategy = "row"
+
+    @asynccontextmanager
+    async def get_session(
+        self, tenant: TenantContext
+    ) -> AsyncGenerator[AsyncSession, None]:
+        db_config = tenant.tenant_secrets.database_config
+        entry = await self._get_or_create_entry(db_config, strategy_name="Row")
+        session = entry.session_factory()
+        _configure_row_session(session)
+        token = set_current_row_tenant_id(tenant.tenant_id)
+        session.info["tenant_id"] = tenant.tenant_id
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            reset_current_row_tenant_id(token)
+            await session.close()
 
 
 def create_tenancy_strategy(settings: Settings) -> TenancyStrategy:
@@ -366,3 +405,73 @@ def _normalize_schema_name(db_config: DatabaseConfig) -> str:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema_name):
         raise ValueError(f"Invalid schema_name for schema strategy: {schema_name!r}")
     return schema_name
+
+
+def set_current_row_tenant_id(tenant_id: str) -> Token[str | None]:
+    return _current_row_tenant_id.set(tenant_id)
+
+
+def get_current_row_tenant_id() -> str:
+    tenant_id = _current_row_tenant_id.get()
+    if not tenant_id:
+        raise RuntimeError("Row strategy requires a tenant context for DB access")
+    return tenant_id
+
+
+def reset_current_row_tenant_id(token: Token[str | None]) -> None:
+    _current_row_tenant_id.reset(token)
+
+
+def _configure_row_session(session: AsyncSession) -> None:
+    if session.info.get("_row_strategy_configured"):
+        return
+    event.listen(session.sync_session, "do_orm_execute", _apply_row_tenant_scope)
+    event.listen(session.sync_session, "before_flush", _stamp_row_tenant_writes)
+    session.info["_row_strategy_configured"] = True
+
+
+class _ExecuteState(Protocol):
+    is_select: bool
+    is_column_load: bool
+    is_relationship_load: bool
+    statement: Any
+
+
+def _apply_row_tenant_scope(execute_state: _ExecuteState) -> None:
+    if not execute_state.is_select:
+        return
+    if execute_state.is_column_load:
+        return
+    if execute_state.is_relationship_load:
+        return
+
+    tenant_id = get_current_row_tenant_id()
+    execute_state.statement = execute_state.statement.options(
+        with_loader_criteria(
+            TenantScopedModel,
+            lambda cls: cls.tenant_id == tenant_id,
+            include_aliases=True,
+        )
+    )
+
+
+class _SyncSessionLike(Protocol):
+    new: Iterable[object]
+    dirty: Iterable[object]
+
+
+def _stamp_row_tenant_writes(sync_session: _SyncSessionLike, *_: object) -> None:
+    tenant_id = get_current_row_tenant_id()
+
+    for instance in sync_session.new:
+        if isinstance(instance, TenantScopedModel):
+            instance.tenant_id = tenant_id
+
+    for instance in sync_session.dirty:
+        if not isinstance(instance, TenantScopedModel):
+            continue
+        if instance.tenant_id != tenant_id:
+            raise ValueError(
+                "Row strategy detected a cross-tenant write for "
+                f"{instance.__class__.__name__}"
+            )
