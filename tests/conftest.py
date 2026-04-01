@@ -100,11 +100,13 @@ def user_payload() -> dict[str, object]:
 
 @pytest.fixture
 def header_user_headers(user_payload: dict[str, object]) -> dict[str, str]:
+    roles = user_payload.get("roles", [])
+    role_list = roles if isinstance(roles, list) else []
     return {
         "X-Tenant-ID": "tenant_1",
         "X-User-ID": str(user_payload["user_id"]),
         "X-User-Email": str(user_payload["email"]),
-        "X-User-Roles": ",".join(user_payload["roles"]),
+        "X-User-Roles": ",".join(str(role) for role in role_list),
     }
 
 

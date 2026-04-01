@@ -225,8 +225,12 @@ async def test_database_strategy_handles_concurrent_requests_with_shared_engine(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
 
     strategy = DatabaseTenancyStrategy(
         Settings.model_construct(
@@ -243,14 +247,15 @@ async def test_database_strategy_handles_concurrent_requests_with_shared_engine(
     )
 
     async def run_request(tenant: TenantContext) -> None:
-        generator = strategy.get_session(tenant)
-        session = await anext(generator)
-        assert isinstance(session, FakeAsyncSession)
-        await asyncio.sleep(0)
-        await generator.aclose()
+        async with strategy.get_session(tenant) as session:
+            assert isinstance(session, FakeAsyncSession)
+            await asyncio.sleep(0)
 
     await asyncio.gather(
-        *(run_request(shared_tenant_one if index % 2 == 0 else shared_tenant_two) for index in range(20))
+        *(
+            run_request(shared_tenant_one if index % 2 == 0 else shared_tenant_two)
+            for index in range(20)
+        )
     )
 
     assert len(created_engines) == 1
@@ -276,8 +281,12 @@ async def test_database_strategy_eviction_under_concurrency_keeps_requests_safe(
 
         return _factory
 
-    monkeypatch.setattr("db.tenancy_strategy.create_async_engine", fake_create_async_engine)
-    monkeypatch.setattr("db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker)
+    monkeypatch.setattr(
+        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
+    )
 
     strategy = DatabaseTenancyStrategy(
         Settings.model_construct(
@@ -286,28 +295,33 @@ async def test_database_strategy_eviction_under_concurrency_keeps_requests_safe(
             USER_DATA_SOURCE={"type": "header"},
         )
     )
-    tenant_one = _make_tenant_context("tenant_1", database_uri="postgresql://db/tenant_1")
-    tenant_two = _make_tenant_context("tenant_2", database_uri="postgresql://db/tenant_2")
-    tenant_three = _make_tenant_context("tenant_3", database_uri="postgresql://db/tenant_3")
+    tenant_one = _make_tenant_context(
+        "tenant_1", database_uri="postgresql://db/tenant_1"
+    )
+    tenant_two = _make_tenant_context(
+        "tenant_2", database_uri="postgresql://db/tenant_2"
+    )
+    tenant_three = _make_tenant_context(
+        "tenant_3", database_uri="postgresql://db/tenant_3"
+    )
 
-    generator_one = strategy.get_session(tenant_one)
-    session_one = await anext(generator_one)
-    assert isinstance(session_one, BlockingAsyncSession)
+    # Keep tenant_one session open while eviction happens
+    async with strategy.get_session(tenant_one) as session_one:
+        assert isinstance(session_one, BlockingAsyncSession)
 
-    generator_two = strategy.get_session(tenant_two)
-    await anext(generator_two)
-    await generator_two.aclose()
+        async with strategy.get_session(tenant_two):
+            pass
 
-    generator_three = strategy.get_session(tenant_three)
-    await anext(generator_three)
-    await generator_three.aclose()
-    await asyncio.sleep(0)
+        async with strategy.get_session(tenant_three):
+            pass
 
-    assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
+        await asyncio.sleep(0)
+        # tenant_one still in flight — must not be disposed yet
+        assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 0
 
-    await generator_one.aclose()
     await close_events["postgresql+asyncpg://db/tenant_1"].wait()
     await asyncio.sleep(0)
-
+    # tenant_one session closed — dispose should have run
     assert engines_by_url["postgresql+asyncpg://db/tenant_1"].dispose_calls == 1
+
     await strategy.teardown()
