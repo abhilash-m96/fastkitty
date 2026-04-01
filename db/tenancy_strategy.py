@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -28,6 +29,26 @@ from schemas.tenancy import (
     TenancyDBStrategy,
     TenantConfig,
     TenantSecrets,
+)
+
+logger = logging.getLogger(__name__)
+
+# Configurable timeout (seconds) for waiting on idle_event before
+# force-disposing an evicted engine. Prevents dispose tasks from blocking forever
+# if a request hangs or a session is never closed.
+_DISPOSE_IDLE_TIMEOUT: float = 30.0
+
+# Reserved/system schema names that must never be used as tenant schemas,
+# even though they pass the identifier regex.
+_RESERVED_SCHEMA_NAMES: frozenset[str] = frozenset(
+    {
+        "public",
+        "pg_catalog",
+        "information_schema",
+        "pg_toast",
+        "pg_temp",
+        "pg_public",
+    }
 )
 
 
@@ -100,6 +121,7 @@ class _BasePlaceholderTenancyStrategy(TenancyStrategy):
     async def teardown(self) -> None:
         return None
 
+    # TODO fixme not necessary to get tenant config and only tenant secrets should suffice; fix this in all concrete impls
     def get_session(
         self, tenant: TenantContext
     ) -> AbstractAsyncContextManager[AsyncSession]:
@@ -126,6 +148,11 @@ class DatabaseTenancyStrategy(TenancyStrategy):
     ) -> AsyncGenerator[AsyncSession, None]:
         db_config = tenant.tenant_secrets.database_config
         entry = await self._acquire_entry(db_config)
+        # session creation can fail (e.g. pool exhausted, driver error).
+        # _release_entry must run regardless — it decrements active_sessions and
+        # potentially sets idle_event, unblocking any pending dispose task.
+        # The outer try/finally guarantees _release_entry even if session_factory()
+        # or the caller's code raises before yielding.
         session = entry.session_factory()
         try:
             yield session
@@ -137,14 +164,25 @@ class DatabaseTenancyStrategy(TenancyStrategy):
             await self._release_entry(entry)
 
     async def teardown(self) -> None:
+        # collect all engines and pending dispose tasks under the lock,
+        # then await everything together so no dispose task races against our
+        # direct disposal of the remaining engines.
         async with self._registry_lock:
             entries = list(self._engines.values())
             self._engines.clear()
+
         pending = list(self._dispose_tasks)
         self._dispose_tasks.clear()
+
+        # Await pending dispose tasks first — they are waiting on idle_event for
+        # engines that were already evicted from the registry. Once those settle,
+        # dispose the remaining live engines directly.
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
         await asyncio.gather(
-            *[self._dispose_entry(entry) for entry in entries],
-            *pending,
+            *[entry.engine.dispose() for entry in entries],
+            return_exceptions=True,
         )
 
     async def _acquire_entry(self, db_config: DatabaseConfig) -> _DatabaseEngineEntry:
@@ -231,8 +269,25 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         return task
 
     async def _dispose_entry(self, entry: _DatabaseEngineEntry) -> None:
+        # Guard against hanging requests that never release their session.
+        # Without a timeout, an evicted engine's dispose task blocks indefinitely if
+        # a session on that engine is stuck (deadlock, slow query, leaked session).
+        # After _DISPOSE_IDLE_TIMEOUT seconds we log a warning and force-dispose —
+        # accepting that the stuck request will get a connection error rather than
+        # silently leaking the engine forever.
         if entry.idle_event is not None:
-            await entry.idle_event.wait()
+            try:
+                await asyncio.wait_for(
+                    entry.idle_event.wait(),
+                    timeout=_DISPOSE_IDLE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timed out waiting for engine %r to become idle before disposal "
+                    "(%d active session(s) still in flight). Force-disposing.",
+                    entry.db_uri,
+                    entry.active_sessions,
+                )
         await entry.engine.dispose()
 
 
@@ -337,6 +392,10 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
         self, tenant: TenantContext
     ) -> AsyncGenerator[AsyncSession, None]:
         db_config = tenant.tenant_secrets.database_config
+        # _normalize_schema_name now also rejects reserved PostgreSQL
+        # schema names (public, pg_catalog, information_schema, etc.) that pass
+        # the identifier regex but would silently redirect queries to the wrong
+        # namespace or expose system tables.
         schema_name = _normalize_schema_name(db_config)
         entry = await self._get_or_create_entry(db_config, strategy_name="Schema")
         session = entry.session_factory()
@@ -354,6 +413,22 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
 
 
 class RowTenancyStrategy(_SharedEngineTenancyStrategy):
+    """
+    Row-level tenant isolation via ORM event hooks.
+
+    IMPORTANT — ORM bypass:
+    Isolation is enforced only for ORM-level queries routed through SQLAlchemy's
+    do_orm_execute event. The following patterns bypass the tenant filter entirely
+    and must NOT be used against tenant-scoped tables:
+
+        # These bypass the tenant filter — do not use on TenantScopedModel tables:
+        await session.execute(text("SELECT * FROM posts"))
+        await session.execute(update(Post).values(title="..."))
+
+    For ad-hoc queries, always include an explicit WHERE tenant_id = :tid clause
+    and bind the value from get_current_row_tenant_id().
+    """
+
     strategy_name: TenancyDBStrategy = "row"
 
     @asynccontextmanager
@@ -377,7 +452,15 @@ class RowTenancyStrategy(_SharedEngineTenancyStrategy):
 
 
 def create_tenancy_strategy(settings: Settings) -> TenancyStrategy:
-    """Instantiate the configured tenancy strategy once at startup."""
+    """Instantiate the configured tenancy strategy once at startup.
+
+    Each branch returns early — the if/if/if pattern (rather than if/elif/elif)
+    is intentional: it avoids implying that the branches are mutually exclusive
+    in a way that would matter, and each return makes the flow unambiguous.
+    The final raise is unreachable in production (Pydantic validates
+    TENANCY_DB_STRATEGY at startup) but guards against test code that
+    constructs Settings directly with an invalid value.
+    """
     strategy = settings.TENANCY_DB_STRATEGY
     if strategy == "database":
         return DatabaseTenancyStrategy(settings)
@@ -399,11 +482,26 @@ def get_app_tenancy_strategy(app: FastAPI) -> TenancyStrategy:
 
 
 def _normalize_schema_name(db_config: DatabaseConfig) -> str:
+    """Validate and return the tenant schema name safe for interpolation into SET search_path.
+
+    Two-stage guard:
+    1. Regex: ensures the name is a valid SQL identifier (prevents injection).
+    2. Reserved-name check: rejects names that are valid identifiers but refer to
+       PostgreSQL system schemas (public, pg_catalog, information_schema, etc.).
+       A tenant named 'public' would pass the regex but silently redirect all
+       queries to the shared public schema — a cross-tenant data exposure risk.
+    """
     schema_name = db_config.schema_name
     if not schema_name:
         raise ValueError("Schema strategy requires database_config.schema_name")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema_name):
         raise ValueError(f"Invalid schema_name for schema strategy: {schema_name!r}")
+    # Issue #1: block reserved/system schema names even though they pass the regex.
+    if schema_name.lower() in _RESERVED_SCHEMA_NAMES:
+        raise ValueError(
+            f"schema_name {schema_name!r} is a reserved PostgreSQL schema name "
+            "and cannot be used as a tenant schema."
+        )
     return schema_name
 
 
@@ -423,6 +521,11 @@ def reset_current_row_tenant_id(token: Token[str | None]) -> None:
 
 
 def _configure_row_session(session: AsyncSession) -> None:
+    # Guard against double-registration: session.info persists for the lifetime
+    # of the session object, so if the same session is somehow reused (e.g. via
+    # connection reuse), events won't be registered twice. In practice this
+    # shouldn't happen given expire_on_commit=False and explicit session.close(),
+    # but the flag makes it unconditionally safe.
     if session.info.get("_row_strategy_configured"):
         return
     event.listen(session.sync_session, "do_orm_execute", _apply_row_tenant_scope)
