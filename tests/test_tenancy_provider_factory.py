@@ -111,3 +111,13 @@ def test_secrets_provider_factory_creates_vault_provider(
     assert provider.url == "https://vault.example.com"
     assert provider.token == "token"
     assert provider.vault_kv_path == "secret/data/tenants/{tenant_id}"
+
+
+def test_secrets_provider_factory_rejects_unsupported_connection() -> None:
+    """Reject unknown secrets connection types with a clear error."""
+
+    class UnsupportedConnection:
+        type = "unsupported"
+
+    with pytest.raises(ValueError, match="Unsupported secrets provider: 'unsupported'"):
+        TenancySecretsProviderFactory.create(UnsupportedConnection())
