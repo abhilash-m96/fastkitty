@@ -12,7 +12,7 @@ from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
 
 def get_tenant_id(
-    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
 ) -> str:
     """Extract tenant ID from request header."""
     if not x_tenant_id:
