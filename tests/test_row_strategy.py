@@ -8,7 +8,7 @@ import pytest
 from config.settings import Settings
 from db.tenancy_strategy import (
     RowTenancyStrategy,
-    TenantContext,
+    TenantDBContext,
     _ExecuteState,
     _SyncSessionLike,
     _apply_row_tenant_scope,
@@ -48,24 +48,16 @@ def _make_tenant_context(
     tenant_id: str,
     *,
     database_uri: str = "postgresql://shared-db/app",
-) -> TenantContext:
-    return TenantContext(
+) -> TenantDBContext:
+    return TenantDBContext(
         tenant_id=tenant_id,
-        tenant_config=TenantConfig(
-            tenant_id=tenant_id,
-            display_name=f"Tenant {tenant_id}",
-            is_active=True,
-        ),
-        tenant_secrets=TenantSecrets(
-            tenant_id=tenant_id,
-            database_config=DatabaseConfig(
-                host="localhost",
-                port=5432,
-                username="user",
-                password="password",
-                database_name="shared_db",
-                database_uri=database_uri,
-            ),
+        db_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name="shared_db",
+            database_uri=database_uri,
         ),
     )
 

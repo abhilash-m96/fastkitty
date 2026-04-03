@@ -6,8 +6,8 @@ from collections.abc import Callable
 import pytest
 
 from config.settings import Settings
-from db.tenancy_strategy import DatabaseTenancyStrategy, TenantContext
-from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
+from db.tenancy_strategy import DatabaseTenancyStrategy, TenantDBContext
+from schemas.tenancy import DatabaseConfig
 
 
 class FakeAsyncSession:
@@ -42,32 +42,24 @@ class FakeAsyncEngine:
         self.dispose_calls += 1
 
 
-def _make_tenant_context(
+def _make_tenant_db_context(
     tenant_id: str,
     *,
     database_uri: str,
     pool_size: int = 10,
     max_overflow: int = 10,
-) -> TenantContext:
-    return TenantContext(
+) -> TenantDBContext:
+    return TenantDBContext(
         tenant_id=tenant_id,
-        tenant_config=TenantConfig(
-            tenant_id=tenant_id,
-            display_name=f"Tenant {tenant_id}",
-            is_active=True,
-        ),
-        tenant_secrets=TenantSecrets(
-            tenant_id=tenant_id,
-            database_config=DatabaseConfig(
-                host="localhost",
-                port=5432,
-                username="user",
-                password="password",
-                database_name=f"db_{tenant_id}",
-                database_uri=database_uri,
-                pool_size=pool_size,
-                max_overflow=max_overflow,
-            ),
+        db_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name=f"db_{tenant_id}",
+            database_uri=database_uri,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
         ),
     )
 
@@ -130,10 +122,10 @@ async def test_database_strategy_reuses_engine_for_same_database_uri(
     )
 
     strategy = DatabaseTenancyStrategy(_make_settings(max_engines=5))
-    tenant_one = _make_tenant_context(
+    tenant_one = _make_tenant_db_context(
         "tenant_1", database_uri="postgresql://db.example.com/tenant-db"
     )
-    tenant_two = _make_tenant_context(
+    tenant_two = _make_tenant_db_context(
         "tenant_2", database_uri="postgresql://db.example.com/tenant-db"
     )
 
@@ -157,13 +149,13 @@ async def test_database_strategy_evicts_lru_engine_and_disposes_idle_entries(
     engines_by_url = _patch_engine_factory(monkeypatch)
     strategy = DatabaseTenancyStrategy(_make_settings(max_engines=2))
 
-    tenant_one = _make_tenant_context(
+    tenant_one = _make_tenant_db_context(
         "tenant_1", database_uri="postgresql://db/tenant_1"
     )
-    tenant_two = _make_tenant_context(
+    tenant_two = _make_tenant_db_context(
         "tenant_2", database_uri="postgresql://db/tenant_2"
     )
-    tenant_three = _make_tenant_context(
+    tenant_three = _make_tenant_db_context(
         "tenant_3", database_uri="postgresql://db/tenant_3"
     )
 
@@ -186,10 +178,10 @@ async def test_database_strategy_waits_for_in_flight_session_before_dispose(
     engines_by_url = _patch_engine_factory(monkeypatch)
     strategy = DatabaseTenancyStrategy(_make_settings(max_engines=1))
 
-    tenant_one = _make_tenant_context(
+    tenant_one = _make_tenant_db_context(
         "tenant_1", database_uri="postgresql://db/tenant_1"
     )
-    tenant_two = _make_tenant_context(
+    tenant_two = _make_tenant_db_context(
         "tenant_2", database_uri="postgresql://db/tenant_2"
     )
 
@@ -239,14 +231,14 @@ async def test_database_strategy_handles_concurrent_requests_with_shared_engine(
             USER_DATA_SOURCE={"type": "header"},
         )
     )
-    shared_tenant_one = _make_tenant_context(
+    shared_tenant_one = _make_tenant_db_context(
         "tenant_1", database_uri="postgresql://db.example.com/shared"
     )
-    shared_tenant_two = _make_tenant_context(
+    shared_tenant_two = _make_tenant_db_context(
         "tenant_2", database_uri="postgresql://db.example.com/shared"
     )
 
-    async def run_request(tenant: TenantContext) -> None:
+    async def run_request(tenant: TenantDBContext) -> None:
         async with strategy.get_session(tenant) as session:
             assert isinstance(session, FakeAsyncSession)
             await asyncio.sleep(0)
@@ -295,13 +287,13 @@ async def test_database_strategy_eviction_under_concurrency_keeps_requests_safe(
             USER_DATA_SOURCE={"type": "header"},
         )
     )
-    tenant_one = _make_tenant_context(
+    tenant_one = _make_tenant_db_context(
         "tenant_1", database_uri="postgresql://db/tenant_1"
     )
-    tenant_two = _make_tenant_context(
+    tenant_two = _make_tenant_db_context(
         "tenant_2", database_uri="postgresql://db/tenant_2"
     )
-    tenant_three = _make_tenant_context(
+    tenant_three = _make_tenant_db_context(
         "tenant_3", database_uri="postgresql://db/tenant_3"
     )
 
