@@ -91,7 +91,7 @@ You do not need to start the FastAPI server before running tests. The suite uses
 The full list of settings is in `.env.example`. Key settings:
 - `TENANCY_CONFIG_CONNECTION`: JSON config for tenancy config provider
 - `TENANCY_SECRETS_CONNECTION`: JSON config for tenancy secrets provider
-- `USER_DATA_SOURCE`: `header` | `jwt` | `claims`
+- `USER_DATA_SOURCE`: `header` | `jwt` | `claims` (Optional)
 
 **Tenancy Model**
 Tenancy is resolved from the `X-Tenant-ID` header:
@@ -142,7 +142,7 @@ async def hello():
 - **Shared DB with tenant column (planned)**: single schema, enforced tenancy via `tenant_id`
 
 **User Data Provider**
-User identity is resolved independently of auth:
+User identity is **optional** and resolved independently of auth:
 - `header` provider: `X-User-ID` and optional `X-User-Email`, `X-User-Roles`
 - `jwt` provider: `Authorization: Bearer <token>`
 - `claims` provider: `X-User-Claims` JSON header
@@ -170,9 +170,8 @@ By the time a request hits your service, auth is already done.
 
 **What this template provides**
 
-`USER_DATA_SOURCE` (`header` | `jwt` | `claims`) is how fastkit(ty) reads already-validated identity from incoming requests. It assumes auth has happened upstream. The `jwt` provider decodes the token — it does not validate or issue it. That's the gateway's job.
+`USER_DATA_SOURCE` (`header` | `jwt` | `claims`) is how fastkit(ty) reads already-validated identity from incoming requests. It assumes auth has happened upstream. And here the one of the providers is `jwt` and in this it only decodes the token — it does not validate or issue it. That's the gateway's job.
 
-Keep tokens lean. Fat tokens with many claims go stale fast and push you toward online validation on every request. Pass just enough to route and scope; let services hydrate what they need from their own context.
 
 **OpenAPI Docs**
 In `dev` mode, interactive API docs are available at:
@@ -188,7 +187,7 @@ In `dev` mode, interactive API docs are available at:
 - `db`: database session / engine setup
 
 **Feature Configuration (Per Tenant)**
-Each tenant can define feature-specific config under `features`. Feature values are user-defined JSON.
+Each tenant can define feature-specific config under `features`. Feature values are defined JSON.
 
 Example in `tenants_config.json`:
 ```json

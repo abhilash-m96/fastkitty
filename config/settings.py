@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import json
 from typing import Annotated, Literal, Union
 
 from schemas.tenancy import DatabaseConfig
@@ -121,10 +122,23 @@ class Settings(BaseSettings):
     )
 
     # User data provider
-    USER_DATA_SOURCE: UserDataSource = Field(
-        ...,
-        description="User data extraction strategy (headers | jwt | single header claims)",
+    USER_DATA_SOURCE: UserDataSource | None = Field(
+        default=None,
+        description="User data extraction strategy (headers | jwt | single header claims). "
+        "Omit entirely if the service does not require user identity extraction.",
     )
+
+    @field_validator("USER_DATA_SOURCE", mode="before")
+    @classmethod
+    def parse_user_data_source(cls, value):
+        if value is None:
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError as e:
+                raise ValueError("USER_DATA_SOURCE must be valid JSON") from e
+        return value
 
 
 @lru_cache()
