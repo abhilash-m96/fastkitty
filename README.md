@@ -2,8 +2,8 @@
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
-![License](https://img.shields.io/github/license/abhilash-m96/fast-api-multi-tenant)
-![Stars](https://img.shields.io/github/stars/abhilash-m96/fast-api-multi-tenant)
+![License](https://img.shields.io/github/license/abhilash-m96/fastkitty)
+![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social)
 
 Ever needed to disable a feature for one customer but enable it for another?
 Give one tenant unlimited API access and another a restricted workflow?
