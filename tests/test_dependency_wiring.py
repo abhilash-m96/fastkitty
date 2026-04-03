@@ -9,7 +9,7 @@ from starlette.requests import Request
 from unittest.mock import MagicMock
 
 from api.deps.db import get_db
-from db.tenancy_strategy import TenantContext
+from db.tenancy_strategy import TenantDBContext
 
 
 def test_missing_tenant_fails_before_db_session_strategy_is_resolved() -> None:
@@ -47,7 +47,7 @@ def test_missing_tenant_fails_before_db_session_strategy_is_resolved() -> None:
 async def test_get_db_closes_strategy_session_on_exit() -> None:
     request = MagicMock(spec=Request)
     request.app = FastAPI()
-    tenant_context = MagicMock(spec=TenantContext)
+    tenant_context = MagicMock(spec=TenantDBContext)
     close_state = {"closed": False}
     session = object()
 

@@ -18,7 +18,6 @@ from db.tenancy_strategy import (
     RowTenancyStrategy,
     SchemaTenancyStrategy,
     TenancyStrategy,
-    TenantContext,
     create_tenancy_strategy,
     get_app_tenancy_strategy,
 )

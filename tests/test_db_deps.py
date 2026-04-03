@@ -8,8 +8,8 @@ from fastapi import FastAPI
 import pytest
 
 from api.deps.db import get_blog_posts_service, get_db
-from api.deps.tenancy import get_tenant_context
-from db.tenancy_strategy import TenantContext
+from api.deps.tenancy import get_tenant_db_context
+from db.tenancy_strategy import TenantDBContext
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 from services.blog_posts_service import BlogPostsService
 
@@ -19,31 +19,23 @@ async def test_get_db_delegates_to_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pass the resolved tenant context through to the selected strategy."""
-    tenant_context = TenantContext(
+    tenant_context = TenantDBContext(
         tenant_id="tenant_1",
-        tenant_config=TenantConfig(
-            tenant_id="tenant_1",
-            display_name="Tenant One",
-            is_active=True,
-        ),
-        tenant_secrets=TenantSecrets(
-            tenant_id="tenant_1",
-            database_config=DatabaseConfig(
-                host="localhost",
-                port=5432,
-                username="user",
-                password="password",
-                database_name="db",
-            ),
+        db_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name="db",
         ),
     )
     session = Mock(name="session")
     request = MagicMock(spec=Request)
     request.app = FastAPI()
-    captured: list[TenantContext] = []
+    captured: list[TenantDBContext] = []
 
     @asynccontextmanager
-    async def fake_get_session(resolved_tenant_context: TenantContext):
+    async def fake_get_session(resolved_tenant_context: TenantDBContext):
         captured.append(resolved_tenant_context)
         yield session
 
@@ -63,13 +55,8 @@ async def test_get_db_delegates_to_strategy(
     await generator.aclose()
 
 
-def test_get_tenant_context_bundles_config_and_secrets() -> None:
-    """Bundle config and secrets into a TenantContext."""
-    tenant_config = TenantConfig(
-        tenant_id="tenant_1",
-        display_name="Tenant One",
-        is_active=True,
-    )
+def test_get_tenant_db_context_bundles_tenant_id_and_db() -> None:
+    """Bundle tenant_id and db_config into a TenantDBContext."""
     tenant_secrets = TenantSecrets(
         tenant_id="tenant_1",
         database_config=DatabaseConfig(
@@ -81,11 +68,10 @@ def test_get_tenant_context_bundles_config_and_secrets() -> None:
         ),
     )
 
-    context = get_tenant_context(tenant_config, tenant_secrets)
+    context = get_tenant_db_context(tenant_secrets)
 
     assert context.tenant_id == "tenant_1"
-    assert context.tenant_config is tenant_config
-    assert context.tenant_secrets is tenant_secrets
+    assert context.db_config == tenant_secrets.database_config
 
 
 def test_get_blog_posts_service_wraps_session() -> None:

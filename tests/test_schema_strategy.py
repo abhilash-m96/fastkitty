@@ -6,7 +6,7 @@ import pytest
 from typing import cast
 
 from config.settings import Settings
-from db.tenancy_strategy import SchemaTenancyStrategy, TenantContext
+from db.tenancy_strategy import SchemaTenancyStrategy, TenantDBContext
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 
 
@@ -42,27 +42,19 @@ def _make_tenant_context(
     schema_name: str = "tenant_one",
     pool_size: int = 10,
     max_overflow: int = 10,
-) -> TenantContext:
-    return TenantContext(
+) -> TenantDBContext:
+    return TenantDBContext(
         tenant_id=tenant_id,
-        tenant_config=TenantConfig(
-            tenant_id=tenant_id,
-            display_name=f"Tenant {tenant_id}",
-            is_active=True,
-        ),
-        tenant_secrets=TenantSecrets(
-            tenant_id=tenant_id,
-            database_config=DatabaseConfig(
-                host="localhost",
-                port=5432,
-                username="user",
-                password="password",
-                database_name="shared_db",
-                database_uri=database_uri,
-                schema_name=schema_name,
-                pool_size=pool_size,
-                max_overflow=max_overflow,
-            ),
+        db_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name="shared_db",
+            database_uri=database_uri,
+            schema_name=schema_name,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
         ),
     )
 
@@ -219,7 +211,7 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
         _make_tenant_context("tenant_2", schema_name="tenant_two"),
     ]
 
-    async def run_request(tenant: TenantContext) -> None:
+    async def run_request(tenant: TenantDBContext) -> None:
         async with strategy.get_session(tenant) as raw_session:
             await asyncio.sleep(0)
         session = cast(FakeAsyncSession, raw_session)
