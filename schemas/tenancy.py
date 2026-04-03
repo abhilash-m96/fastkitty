@@ -91,14 +91,6 @@ class TenantSecrets(BaseModel):
     )
 
 
-@dataclass(frozen=True, slots=True)
-class TenantDBContext(BaseModel):
-    """Request-scoped tenant information shared with DB strategies."""
-
-    tenant_id: str
-    db_config: DatabaseConfig
-
-
 class TenantMetadata(BaseModel):
     """Schema for tenant metadata."""
 

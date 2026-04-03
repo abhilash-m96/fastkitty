@@ -9,7 +9,7 @@ from db.tenancy_strategy import (
 )
 from services.blog_posts_service import BlogPostsService
 from api.deps.tenancy import get_tenant_db_context
-from schemas.tenancy import TenantDBContext
+from db.tenancy_strategy import TenantDBContext
 
 
 async def get_db(

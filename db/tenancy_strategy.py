@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import (
 from config.settings import Settings
 from db.session import PoolConfig
 from models.base import TenantScopedModel
-from schemas.tenancy import DatabaseConfig, TenancyDBStrategy, TenantDBContext
+from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,14 @@ _RESERVED_SCHEMA_NAMES: frozenset[str] = frozenset(
         "pg_public",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class TenantDBContext:
+    """Request-scoped tenant information shared with DB strategies."""
+
+    tenant_id: str
+    db_config: DatabaseConfig
 
 
 class TenancyStrategy(ABC):

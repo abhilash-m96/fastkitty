@@ -7,7 +7,8 @@ from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
 )
-from schemas.tenancy import FeatureConfig, TenantConfig, TenantSecrets, TenantDBContext
+from db.tenancy_strategy import TenantDBContext
+from schemas.tenancy import FeatureConfig, TenantConfig, TenantSecrets
 from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
 
