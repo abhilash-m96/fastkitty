@@ -6,6 +6,7 @@ from api.deps.db import get_blog_posts_service
 from api.deps.tenancy import require_active_tenant
 from api.deps.user_data import get_user_data
 from schemas.posts import BlogPostCreate, BlogPostResponse, BlogPostUpdate
+from schemas.user_data import UserData
 from services.blog_posts_service import BlogPostsService
 
 
@@ -30,9 +31,9 @@ router = APIRouter(
 async def create_blog_post(
     payload: Annotated[BlogPostCreate, Body()],
     service: BlogPostsService = Depends(get_blog_posts_service),
-    user_data: dict = Depends(get_user_data),
+    user_data: UserData = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = await service.create_post(payload, user_id=user_data["user_id"])
+    blog_post = await service.create_post(payload, user_id=user_data.user_id)
     return BlogPostResponse.model_validate(blog_post)
 
 
@@ -48,9 +49,9 @@ async def create_blog_post(
 )
 async def list_blog_posts(
     service: BlogPostsService = Depends(get_blog_posts_service),
-    user_data: dict = Depends(get_user_data),
+    user_data: UserData = Depends(get_user_data),
 ) -> list[BlogPostResponse]:
-    posts = await service.list_posts(user_id=user_data["user_id"])
+    posts = await service.list_posts(user_id=user_data.user_id)
     return [BlogPostResponse.model_validate(p) for p in posts]
 
 
@@ -68,9 +69,9 @@ async def list_blog_posts(
 async def get_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     service: BlogPostsService = Depends(get_blog_posts_service),
-    user_data: dict = Depends(get_user_data),
+    user_data: UserData = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
@@ -94,9 +95,9 @@ async def update_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     payload: Annotated[BlogPostUpdate, Body()],
     service: BlogPostsService = Depends(get_blog_posts_service),
-    user_data: dict = Depends(get_user_data),
+    user_data: UserData = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
@@ -119,9 +120,9 @@ async def update_blog_post(
 async def delete_blog_post(
     blog_post_id: Annotated[int, Path(ge=1)],
     service: BlogPostsService = Depends(get_blog_posts_service),
-    user_data: dict = Depends(get_user_data),
+    user_data: UserData = Depends(get_user_data),
 ) -> Response:
-    blog_post = await service.get_post(blog_post_id, user_id=user_data["user_id"])
+    blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"

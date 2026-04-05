@@ -2,9 +2,10 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel, Field, field_validator
 import json
-from typing import Annotated, Literal, Union
+from typing import Annotated, ClassVar, Literal, Union
 
 from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
+from schemas.user_data import UserDataField
 
 
 class TenancyConfigFileConnection(BaseModel):
@@ -70,6 +71,12 @@ class UserDataHeaderSource(BaseModel):
     user_roles_header: str | None = Field(default="X-User-Roles")
     roles_delimiter: str = Field(default=",")  # "admin,editor" → ["admin", "editor"]
 
+    _payload_key_map: ClassVar[dict[str, UserDataField]] = {
+        "user_id_header": UserDataField.user_id,
+        "user_email_header": UserDataField.email,
+        "user_roles_header": UserDataField.roles,
+    }
+
 
 class UserDataJWTSource(BaseModel):
     type: Literal["jwt"] = "jwt"
@@ -81,6 +88,12 @@ class UserDataJWTSource(BaseModel):
     user_email_claim: str | None = Field(default="email")
     user_roles_claim: str | None = Field(default="roles")
 
+    _payload_key_map: ClassVar[dict[str, UserDataField]] = {
+        "user_id_claim": UserDataField.user_id,
+        "user_email_claim": UserDataField.email,
+        "user_roles_claim": UserDataField.roles,
+    }
+
 
 class UserDataSingleHeaderClaimsSource(BaseModel):
     type: Literal["claims"] = "claims"
@@ -88,6 +101,12 @@ class UserDataSingleHeaderClaimsSource(BaseModel):
     user_id_field: str = Field(default="id")
     user_email_field: str | None = Field(default="email")
     user_roles_field: str | None = Field(default="roles")
+
+    _payload_key_map: ClassVar[dict[str, UserDataField]] = {
+        "user_id_field": UserDataField.user_id,
+        "user_email_field": UserDataField.email,
+        "user_roles_field": UserDataField.roles,
+    }
 
 
 UserDataSource = Annotated[
