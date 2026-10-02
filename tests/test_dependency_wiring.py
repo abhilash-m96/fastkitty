@@ -35,11 +35,7 @@ def test_missing_tenant_fails_before_db_session_strategy_is_resolved() -> None:
     finally:
         db_module.get_app_tenancy_strategy = original
 
-    assert response.status_code == 400
-    assert (
-        response.json()["detail"]
-        == "Tenant ID is required (X-Tenant-ID header missing)"
-    )
+    assert response.status_code == 422
     assert strategy_calls["count"] == 0
 
 

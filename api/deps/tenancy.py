@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings

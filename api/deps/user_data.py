@@ -13,6 +13,7 @@ from config.settings import (
     UserDataHeaderSource,
     UserDataJWTSource,
     UserDataSingleHeaderClaimsSource,
+    UserDataSource,
     get_settings,
 )
 from schemas.user_data import UserData
@@ -33,6 +34,18 @@ def _is_literal_field(field_info) -> bool:
 
 def _is_optional(annotation) -> bool:
     return get_origin(annotation) is Union and type(None) in get_args(annotation)
+
+
+def _is_field_active(src, field_name: str, field_info) -> bool:
+    if _is_literal_field(field_info):
+        return False
+    if src.model_fields_set:
+        if field_name in src.model_fields_set:
+            return getattr(src, field_name) is not None
+        if not _is_optional(field_info.annotation):
+            return getattr(src, field_name) is not None
+        return False
+    return getattr(src, field_name) is not None
 
 
 def _parse_roles(value: object | None, delimiter: str) -> list[str] | None:
@@ -64,9 +77,7 @@ def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
 
     result = {}
     for field_name, field_info in UserDataJWTSource.model_fields.items():
-        if _is_literal_field(field_info):
-            continue
-        if field_name not in source.model_fields_set:
+        if not _is_field_active(source, field_name, field_info):
             continue
         claim_key = getattr(source, field_name)
         if not isinstance(claim_key, str):
@@ -96,9 +107,7 @@ def _extract_single_header_claims(
 
     result = {}
     for field_name, field_info in UserDataSingleHeaderClaimsSource.model_fields.items():
-        if _is_literal_field(field_info):
-            continue
-        if field_name not in source.model_fields_set:
+        if not _is_field_active(source, field_name, field_info):
             continue
         claim_key = getattr(source, field_name)
         if not isinstance(claim_key, str):
@@ -112,6 +121,9 @@ def _extract_single_header_claims(
                 f"User claims header is missing required field: {claim_key}"
             )
         result[payload_key] = value
+
+    if "roles" in result and result["roles"] is not None:
+        result["roles"] = _parse_roles(result["roles"], ",")
 
     return UserData(**result)
 
@@ -130,9 +142,7 @@ def _build_dynamic_signature(model_class, src) -> inspect.Signature:
     params = []
 
     for field_name, field_info in model_class.model_fields.items():
-        if _is_literal_field(field_info):
-            continue
-        if field_name not in src.model_fields_set:
+        if not _is_field_active(src, field_name, field_info):
             continue
         header_name = getattr(src, field_name)
         if not isinstance(header_name, str):
@@ -155,14 +165,20 @@ def _extract_headers(model_class, src, kwargs: dict) -> UserData:
     result = {}
     payload_key_map = getattr(model_class, "_payload_key_map", {})
     for field_name, field_info in model_class.model_fields.items():
-        if _is_literal_field(field_info):
-            continue
-        if field_name not in src.model_fields_set:
+        if not _is_field_active(src, field_name, field_info):
             continue
         if field_name not in payload_key_map:
             continue
         payload_key = payload_key_map[field_name]
-        result[payload_key] = kwargs.get(field_name)
+        value = kwargs.get(field_name)
+        if value is None and not _is_optional(field_info.annotation):
+            raise ValueError(f"Missing required header: {getattr(src, field_name)}")
+        result[payload_key] = value
+
+    if "roles" in result and result["roles"] is not None:
+        delimiter = getattr(src, "roles_delimiter", ",")
+        result["roles"] = _parse_roles(result["roles"], delimiter)
+
     return UserData(**result)
 
 
@@ -170,16 +186,20 @@ def _extract_headers(model_class, src, kwargs: dict) -> UserData:
 # Main builder
 # -----------------------
 
+_UNSET = object()
 
-def _build_get_user_data() -> Callable[..., Any]:
-    if _source is None:
+
+def _build_get_user_data(
+    source: UserDataSource | object = _UNSET,
+) -> Callable[..., Any]:
+    src = get_settings().USER_DATA_SOURCE if source is _UNSET else source
+    if src is None:
         return _get_user_data_unconfigured
 
     # -----------------------
     # HEADER MODE
     # -----------------------
-    if isinstance(_source, UserDataHeaderSource):
-        src = _source
+    if isinstance(src, UserDataHeaderSource):
 
         async def _header_handler(**kwargs) -> UserData:
             try:
@@ -201,8 +221,7 @@ def _build_get_user_data() -> Callable[..., Any]:
     # -----------------------
     # JWT MODE
     # -----------------------
-    if isinstance(_source, UserDataJWTSource):
-        src = _source
+    if isinstance(src, UserDataJWTSource):
 
         async def _jwt_handler(**kwargs) -> UserData:
             try:
@@ -228,8 +247,7 @@ def _build_get_user_data() -> Callable[..., Any]:
     # -----------------------
     # CLAIMS MODE
     # -----------------------
-    if isinstance(_source, UserDataSingleHeaderClaimsSource):
-        src = _source
+    if isinstance(src, UserDataSingleHeaderClaimsSource):
 
         async def _claims_handler(**kwargs) -> UserData:
             try:
@@ -251,7 +269,7 @@ def _build_get_user_data() -> Callable[..., Any]:
         _claims_handler.__name__ = "get_user_data"
         return _claims_handler
 
-    raise RuntimeError(f"Unsupported USER_DATA_SOURCE type: {_source!r}")
+    raise RuntimeError(f"Unsupported USER_DATA_SOURCE type: {src!r}")
 
 
 # -----------------------

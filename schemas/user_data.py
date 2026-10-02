@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class UserDataField(str, Enum):
@@ -36,3 +36,14 @@ class UserData(BaseModel):
     user_id: str
     email: str | None = None
     roles: list[str] | None = None
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _parse_roles(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        raise ValueError("Roles must be a list or delimiter-separated string")
