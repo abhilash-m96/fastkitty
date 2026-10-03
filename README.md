@@ -1,4 +1,4 @@
-# fastkit(ty) 🐱
+# fastkit(ty) 😼
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
@@ -9,7 +9,7 @@ Ever needed to disable a feature for one customer but enable it for another?
 Give one tenant unlimited API access and another a restricted workflow?
 Make your service behave differently depending on which tenant is calling?
 
-That's multi-tenant SaaS — and fastkit(ty) 🐱 is a FastAPI template built for it.
+That's multi-tenant SaaS — and fastkit(ty) 😼 is a FastAPI template built for it.
 
 A pragmatic foundation for building multi-tenant services with explicit tenant context, clear dependency boundaries, and a service-first architecture.
 
