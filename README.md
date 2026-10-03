@@ -44,22 +44,48 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 
 ## Quickstart
 
-**1. Install dependencies**
+### Option A: Local Development with Docker PostgreSQL (Recommended)
+
+**1. Start the PostgreSQL service (with multi-tenant databases pre-configured)**
+
+```bash
+docker compose up -d postgres
+```
+This starts PostgreSQL 16 on `localhost:5432` and automatically runs [`docker/init-db.sh`](docker/init-db.sh) to create `tenant_1`, `tenant_2`, and `fastkitty_shared` databases.
+
+**2. Install dependencies & create environment file**
 
 ```bash
 uv sync
-```
-
-**2. Create your env file**
-
-```bash
 cp .env.example .env
 ```
 
-**3. Run the API**
+**3. Run database migrations**
+
+```bash
+uv run alembic upgrade head
+```
+
+**4. Run the API with auto-reload**
 
 ```bash
 uv run uvicorn main:app --reload
+```
+
+---
+
+### Option B: Full Containerized Stack
+
+To run both PostgreSQL and the FastKitty API containerized:
+
+```bash
+docker compose --profile full up --build -d
+```
+
+Run migrations inside the running API container:
+
+```bash
+docker compose exec api uv run alembic upgrade head
 ```
 
 **4. Try it — same endpoint, different tenants**
