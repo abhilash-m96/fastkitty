@@ -26,17 +26,16 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      TENANCY_DB_STRATEGY: ${TENANCY_DB_STRATEGY:-database}
-      TENANCY_CONFIG_CONNECTION: '${TENANCY_CONFIG_CONNECTION:-{"type": "file", "path": "tenants_config.json"}}'
-      TENANCY_SECRETS_CONNECTION: '${TENANCY_SECRETS_CONNECTION:-{"type": "file", "path": "tenants_secrets.docker.json"}}'
+      TENANCY_SECRETS_CONNECTION: '{"type": "file", "file_path": "tenants_secrets.docker.json"}'
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - .:/app
-    profiles:
-      - full
+    command: sh -c "uv run alembic upgrade head && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 volumes:
   postgres_data:

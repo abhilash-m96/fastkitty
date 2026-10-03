@@ -79,14 +79,9 @@ uv run uvicorn main:app --reload
 To run both PostgreSQL and the FastKitty API containerized:
 
 ```bash
-docker compose --profile full up --build -d
+docker compose up --build -d
 ```
-
-Run migrations inside the running API container:
-
-```bash
-docker compose exec api uv run alembic upgrade head
-```
+PostgreSQL boots, tenant databases are created, migrations run automatically on startup, and the API is live at `http://localhost:8000` with code reload.
 
 **4. Try it — same endpoint, different tenants**
 
