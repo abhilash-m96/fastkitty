@@ -83,6 +83,63 @@ docker compose up --build -d
 ```
 PostgreSQL boots, tenant databases are created, migrations run automatically on startup, and the API is live at `http://localhost:8000` with code reload.
 
+---
+
+### Interactive Debugging with Docker & `pdb`
+
+The `api` container runs with `stdin_open: true` and `tty: true`, enabling full interactive debugging with Python's built-in debugger.
+
+#### 1. Add a Breakpoint
+Drop `breakpoint()` (or `import pdb; pdb.set_trace()`) anywhere in your route, dependency, or service code:
+
+```python
+@router.get("/hello", name="greet")
+async def hello(
+    tenant_config: TenantConfig = Depends(get_tenant_config),
+):
+    breakpoint()  # execution pauses here
+    message = ...
+```
+
+#### 2. Trigger the Code
+Send an HTTP request that hits the breakpoint:
+
+```bash
+curl -H "X-Tenant-ID: tenant_1" http://127.0.0.1:8000/v1/hello
+```
+The request pauses awaiting debugger input.
+
+#### 3. Attach to the Container
+In another terminal, attach directly to the running container:
+
+```bash
+docker attach fastkitty-api
+```
+
+You are now in the live `(Pdb)` prompt:
+- `n` — step to next line
+- `s` — step into function
+- `c` — continue execution
+- `p <variable>` — evaluate and print expression
+- `l` — list surrounding code
+
+> [!TIP]
+> **Detaching without stopping the container**:
+> Press **`Ctrl+P`** followed by **`Ctrl+Q`** to detach your terminal while leaving the container running.
+
+#### 4. Interactive Container Shell
+To inspect files or test Python code inside the container environment:
+
+```bash
+# Open interactive bash shell
+docker compose exec -it api bash
+
+# Open Python REPL inside container environment
+docker compose exec -it api python
+```
+
+---
+
 **4. Try it — same endpoint, different tenants**
 
 ```bash
