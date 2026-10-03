@@ -1,42 +1,62 @@
 """Unit tests for database dependency helpers and service wiring."""
 
+from contextlib import asynccontextmanager
 from unittest.mock import Mock
+from unittest.mock import MagicMock
+from starlette.requests import Request
+from fastapi import FastAPI
+import pytest
 
-from api.deps.db import build_db_uri, get_blog_posts_service, get_db
-from schemas.tenancy import DatabaseConfig, TenantSecrets
+from api.deps.db import get_blog_posts_service, get_db
+from api.deps.tenancy import get_tenant_db_context
+from db.tenancy_strategy import TenantDBContext
+from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
 from services.blog_posts_service import BlogPostsService
 
 
-def test_build_db_uri_prefers_existing_database_uri() -> None:
-    """Prefer the direct URI when tenant secrets already provide one."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-        database_uri="sqlite:///tmp.db",
+@pytest.mark.asyncio
+async def test_get_db_delegates_to_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pass the resolved tenant context through to the selected strategy."""
+    tenant_context = TenantDBContext(
+        tenant_id="tenant_1",
+        db_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name="db",
+        ),
+    )
+    session = Mock(name="session")
+    request = MagicMock(spec=Request)
+    request.app = FastAPI()
+    captured: list[TenantDBContext] = []
+
+    @asynccontextmanager
+    async def fake_get_session(resolved_tenant_context: TenantDBContext):
+        captured.append(resolved_tenant_context)
+        yield session
+
+    fake_strategy = Mock(name="strategy")
+    fake_strategy.get_session = fake_get_session
+    monkeypatch.setattr(
+        "api.deps.db.get_app_tenancy_strategy", lambda app: fake_strategy
     )
 
-    assert build_db_uri(config) == "sqlite:///tmp.db"
+    generator = get_db(request, tenant_context)
+    yielded_session = await anext(generator)
+
+    assert yielded_session is session
+    assert len(captured) == 1
+    assert captured[0] is tenant_context
+
+    await generator.aclose()
 
 
-def test_build_db_uri_falls_back_to_computed_uri() -> None:
-    """Compose the URI from discrete DB fields when no URI is present."""
-    config = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        username="user",
-        password="password",
-        database_name="db",
-    )
-    config.database_uri = None
-
-    assert build_db_uri(config) == "postgresql://user:password@localhost:5432/db"
-
-
-def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
-    """Pass the resolved tenant DB settings through to session creation."""
+def test_get_tenant_db_context_bundles_tenant_id_and_db() -> None:
+    """Bundle tenant_id and db_config into a TenantDBContext."""
     tenant_secrets = TenantSecrets(
         tenant_id="tenant_1",
         database_config=DatabaseConfig(
@@ -47,25 +67,11 @@ def test_get_db_delegates_to_create_session(monkeypatch: object) -> None:
             database_name="db",
         ),
     )
-    session = Mock(name="session")
-    captured: dict[str, object] = {}
 
-    def fake_create_session(**kwargs: object):
-        captured.update(kwargs)
-        yield session
+    context = get_tenant_db_context(tenant_secrets)
 
-    monkeypatch.setattr("api.deps.db.create_session", fake_create_session)
-
-    yielded_session = next(get_db(tenant_secrets))
-
-    assert yielded_session is session
-    assert captured == {
-        "db_uri": "postgresql://user:password@localhost:5432/db",
-        "pool_size": 10,
-        "max_overflow": 10,
-        "pool_recycle": 3600,
-        "pool_pre_ping": True,
-    }
+    assert context.tenant_id == "tenant_1"
+    assert context.db_config == tenant_secrets.database_config
 
 
 def test_get_blog_posts_service_wraps_session() -> None:

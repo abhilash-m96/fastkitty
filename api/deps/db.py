@@ -1,35 +1,26 @@
-from typing import Generator
+from typing import AsyncGenerator
 
-from fastapi import Depends
-from sqlalchemy.orm import Session
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.session import create_session
-from schemas.tenancy import TenantSecrets, DatabaseConfig
+from db.tenancy_strategy import (
+    TenancyStrategy,
+    get_app_tenancy_strategy,
+)
 from services.blog_posts_service import BlogPostsService
-from api.deps.tenancy import get_tenant_secrets
+from api.deps.tenancy import get_tenant_db_context
+from db.tenancy_strategy import TenantDBContext
 
 
-def build_db_uri(db_config: DatabaseConfig) -> str:
-    return db_config.database_uri or (
-        f"{db_config.dialect}://{db_config.username}:{db_config.password}"
-        f"@{db_config.host}:{db_config.port}/{db_config.database_name}"
-    )
+async def get_db(
+    request: Request,
+    tenant_db_context: TenantDBContext = Depends(get_tenant_db_context),
+) -> AsyncGenerator[AsyncSession, None]:
+    """Yield a request-scoped DB session via the active tenancy strategy."""
+    strategy: TenancyStrategy = get_app_tenancy_strategy(request.app)
+    async with strategy.get_session(tenant_db_context) as session:
+        yield session
 
 
-def get_db(
-    tenant_secrets: TenantSecrets = Depends(get_tenant_secrets),
-) -> Generator[Session, None, None]:
-    """Get a database session for the current tenant."""
-
-    db_config = tenant_secrets.database_config
-    yield from create_session(
-        db_uri=build_db_uri(db_config),
-        pool_size=tenant_secrets.database_config.pool_size,
-        max_overflow=tenant_secrets.database_config.max_overflow,
-        pool_recycle=tenant_secrets.database_config.pool_recycle,
-        pool_pre_ping=tenant_secrets.database_config.pool_pre_ping,
-    )
-
-
-def get_blog_posts_service(db: Session = Depends(get_db)) -> BlogPostsService:
+def get_blog_posts_service(db: AsyncSession = Depends(get_db)) -> BlogPostsService:
     return BlogPostsService(db)

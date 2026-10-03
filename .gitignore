@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# VS code:
+.vscode/
+
 # ENV
 .env

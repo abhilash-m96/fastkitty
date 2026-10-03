@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
@@ -7,6 +5,7 @@ from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
 )
+from db.tenancy_strategy import TenantDBContext
 from schemas.tenancy import FeatureConfig, TenantConfig, TenantSecrets
 from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
@@ -85,6 +84,16 @@ def get_tenant_secrets(
         tenant_id=tenant_id
     )
     return secrets
+
+
+def get_tenant_db_context(
+    tenant_secrets: TenantSecrets = Depends(get_tenant_secrets),
+) -> TenantDBContext:
+    """Bundle tenant config and secrets into a single context for DB strategies."""
+    return TenantDBContext(
+        tenant_id=tenant_secrets.tenant_id,
+        db_config=tenant_secrets.database_config,
+    )
 
 
 def get_feature_config(key: str | None = None):

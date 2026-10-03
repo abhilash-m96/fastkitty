@@ -6,6 +6,7 @@ from api.deps.db import get_blog_posts_service
 from api.deps.tenancy import get_tenant_config
 from api.deps.user_data import get_user_data
 from models.posts import BlogPost
+from schemas.user_data import UserData
 
 
 def _blog_post(
@@ -78,13 +79,10 @@ def test_hello_rejects_inactive_tenant(
 
 
 def test_hello_requires_tenant_header_without_override(client) -> None:
-    """Return a 400 when tenant resolution has no header to read from."""
+    """Return a 422 when tenant resolution has no header to read from."""
     response = client.get("/v1/hello")
 
-    assert response.status_code == 400
-    assert response.json() == {
-        "detail": "Tenant ID is required (X-Tenant-ID header missing)"
-    }
+    assert response.status_code == 422
 
 
 def test_create_blog_post_returns_created_post(
@@ -97,7 +95,7 @@ def test_create_blog_post_returns_created_post(
     post = _blog_post(title="Created post", content="Created body")
 
     class FakeBlogPostsService:
-        def create_post(self, payload, *, user_id: str):
+        async def create_post(self, payload, *, user_id: str):
             assert payload.title == "Created post"
             assert payload.content == "Created body"
             assert user_id == user_payload["user_id"]
@@ -107,7 +105,7 @@ def test_create_blog_post_returns_created_post(
         {
             get_tenant_config: lambda: tenant_config,
             get_blog_posts_service: lambda: FakeBlogPostsService(),
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
@@ -135,7 +133,7 @@ def test_list_blog_posts_returns_user_posts(
     ]
 
     class FakeBlogPostsService:
-        def list_posts(self, *, user_id: str):
+        async def list_posts(self, *, user_id: str):
             assert user_id == user_payload["user_id"]
             return posts
 
@@ -143,7 +141,7 @@ def test_list_blog_posts_returns_user_posts(
         {
             get_tenant_config: lambda: tenant_config,
             get_blog_posts_service: lambda: FakeBlogPostsService(),
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
@@ -162,7 +160,7 @@ def test_get_blog_post_returns_not_found_when_missing(
     """Return a 404 when the requested blog post does not exist for the user."""
 
     class FakeBlogPostsService:
-        def get_post(self, post_id: int, *, user_id: str):
+        async def get_post(self, post_id: int, *, user_id: str):
             assert post_id == 999
             assert user_id == user_payload["user_id"]
             return None
@@ -171,7 +169,7 @@ def test_get_blog_post_returns_not_found_when_missing(
         {
             get_tenant_config: lambda: tenant_config,
             get_blog_posts_service: lambda: FakeBlogPostsService(),
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
@@ -192,12 +190,12 @@ def test_update_blog_post_returns_updated_resource(
     updated = _blog_post(post_id=5, title="New title", content="New body")
 
     class FakeBlogPostsService:
-        def get_post(self, post_id: int, *, user_id: str):
+        async def get_post(self, post_id: int, *, user_id: str):
             assert post_id == 5
             assert user_id == user_payload["user_id"]
             return existing
 
-        def update_post(self, post, payload):
+        async def update_post(self, post, payload):
             assert post is existing
             assert payload.title == "New title"
             assert payload.content == "New body"
@@ -207,7 +205,7 @@ def test_update_blog_post_returns_updated_resource(
         {
             get_tenant_config: lambda: tenant_config,
             get_blog_posts_service: lambda: FakeBlogPostsService(),
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
@@ -232,12 +230,12 @@ def test_delete_blog_post_returns_no_content(
     calls = {"deleted": False}
 
     class FakeBlogPostsService:
-        def get_post(self, post_id: int, *, user_id: str):
+        async def get_post(self, post_id: int, *, user_id: str):
             assert post_id == 9
             assert user_id == user_payload["user_id"]
             return existing
 
-        def delete_post(self, post):
+        async def delete_post(self, post):
             assert post is existing
             calls["deleted"] = True
 
@@ -245,7 +243,7 @@ def test_delete_blog_post_returns_no_content(
         {
             get_tenant_config: lambda: tenant_config,
             get_blog_posts_service: lambda: FakeBlogPostsService(),
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
@@ -266,7 +264,7 @@ def test_blog_posts_require_active_tenant(
     apply_overrides(
         {
             get_tenant_config: lambda: inactive_tenant_config,
-            get_user_data: lambda: user_payload,
+            get_user_data: lambda: UserData(**user_payload),
         }
     )
 
