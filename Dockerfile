@@ -5,10 +5,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /app
 
-# Enable bytecode compilation and unbuffered stdout
+# Enable bytecode compilation, unbuffered stdout, and isolate container venv in /opt/venv
 ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
 
 # Install dependencies first for optimal layer caching
 COPY pyproject.toml uv.lock ./

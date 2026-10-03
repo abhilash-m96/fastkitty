@@ -257,6 +257,27 @@ The right strategy depends on your isolation requirements and scale. This is a s
 
 Start with `row` if you are early stage. The template is designed so you can migrate to `schema` or `database` by changing one env var and updating your secrets — your routes and services change nothing.
 
+### RDBMS Compatibility: Why FastKitty is Built Primarily for PostgreSQL
+
+FastKitty is **primarily built and optimized for PostgreSQL**. While SQL syntax is broadly similar across engines, the concept and implementation of a "schema" differs fundamentally across relational databases:
+
+| Database | Sub-Schema Support within a DB | How it Works & Compatibility with FastKitty |
+|---|---|---|
+| **PostgreSQL** | **Native First-Class** | **Full Support (Primary Target)**. A single database instance can hold many isolated schemas. Dynamic session switching via `SET search_path TO <schema>, public` provides lightweight, fast schema isolation with shared connection pooling. FastKitty's async driver (`asyncpg`) and migration runner are built for PostgreSQL. |
+| **MySQL / MariaDB** | **No Sub-Schemas** | In MySQL, **`DATABASE` and `SCHEMA` are synonyms**. Executing `CREATE SCHEMA tenant_1` is identical to `CREATE DATABASE tenant_1`. MySQL has no concept of schemas *inside* a database. If using MySQL, developers must use either the **`database`** strategy (separate MySQL databases) or the **`row`** strategy. |
+| **Oracle** | **Tied to Users** | In Oracle, a schema is synonymous with a database `USER`. Switching schemas dynamically requires `ALTER SESSION SET CURRENT_SCHEMA = tenant_1`. |
+| **Microsoft SQL Server** | **Namespaces Only** | Schemas exist within a database (`tenant_1.table`), but lack dynamic session-level `search_path` switching without user credential changes. |
+| **SQLite** | **File-Based** | Single-file database without native schema namespaces (unless attaching files). |
+
+> [!NOTE]
+> **Single Database Server (Dev) vs. Multi-Server / Multi-Cluster (Production)**
+> In local development and Docker Compose, all logical databases (`tenant_1`, `tenant_2`, `fastkitty_shared`) and tenant schemas run inside a single PostgreSQL server container (`localhost:5432`) for convenience and zero-cost local setup.
+>
+> However, because every tenant's `DatabaseConfig` independently defines `host`, `port`, `username`, `password`, and `database_name`:
+> - **In `database` strategy**: Tenants can be distributed across completely separate physical or cloud RDS clusters in different AWS/GCP regions (e.g. Tenant 1 on `eu-west-1.rds.amazonaws.com` and Tenant 2 on `us-east-1.rds.amazonaws.com`).
+> - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
+> - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
+
 ### Configuring a Strategy
 
 Set the strategy once in your env:

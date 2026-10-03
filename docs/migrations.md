@@ -38,6 +38,9 @@ FastKitty's migration runner in `db/migrations.py` (invoked via `alembic/env.py`
   4. Runs migrations with isolated version tracking (`version_table_schema="<schema_name>"`).
   5. Cleans up with `RESET search_path`.
 
+> [!NOTE]
+> FastKitty is primarily built and optimized for PostgreSQL. PostgreSQL natively supports isolated schemas within a database and dynamic `search_path` connection switching. In MySQL/MariaDB, `SCHEMA` is an exact alias for `DATABASE` (there are no sub-schemas inside a database), so MySQL users should choose either the `database` or `row` strategy.
+
 ### 3. Database Strategy (`TENANCY_DB_STRATEGY=database`)
 - Discovers active tenants from `TenancyConfigService` and connection secrets from `TenancySecretsService`.
 - Creates an independent async engine for each tenant database.
