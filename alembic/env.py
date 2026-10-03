@@ -1,85 +1,250 @@
 import asyncio
+import logging
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
+from config.settings import get_settings
+from config.tenancy_providers_factory import (
+    TenancyConfigProviderFactory,
+    TenancySecretsProviderFactory,
+)
+from db.tenancy_strategy import _normalize_schema_name
 import models  # noqa: F401 - ensures all models are registered on Base.metadata
 from models.base import Base
+from schemas.tenancy import TenantMetadata
+from services.tenancy_service import TenancyConfigService, TenancySecretsService
+
+logger = logging.getLogger("alembic.env")
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
+settings = get_settings()
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+
+def _get_x_argument(key: str) -> str | None:
+    """Read custom argument passed via -x key=value."""
+    x_args = context.get_x_argument(as_dictionary=True)
+    return x_args.get(key)
+
+
+def _resolve_tenants_and_secrets(
+    target_tenant: str | None = None,
+) -> tuple[list[TenantMetadata], TenancySecretsService | None]:
+    """Resolve active tenants and secrets provider service."""
+    try:
+        config_provider = TenancyConfigProviderFactory.create(
+            settings.TENANCY_CONFIG_CONNECTION
+        )
+        secrets_provider = TenancySecretsProviderFactory.create(
+            settings.TENANCY_SECRETS_CONNECTION
+        )
+        config_service = TenancyConfigService(config_provider)
+        secrets_service = TenancySecretsService(secrets_provider)
+
+        all_tenants = config_service.list_tenants()
+        if target_tenant:
+            matching = [t for t in all_tenants if t.tenant_id == target_tenant]
+            if not matching:
+                raise ValueError(
+                    f"Tenant '{target_tenant}' not found in tenancy configuration"
+                )
+            return matching, secrets_service
+        return [t for t in all_tenants if t.is_active], secrets_service
+    except Exception as exc:
+        logger.warning("Could not resolve tenants from providers: %s", exc)
+        return [], None
+
+
+def _get_fallback_url() -> str:
+    url = config.get_main_option("sqlalchemy.url")
+    if not url or url.startswith("driver://"):
+        raise ValueError(
+            "No valid database URL found. Configure tenants or set sqlalchemy.url in alembic.ini"
+        )
+    return url
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
+    """Run migrations in 'offline' mode."""
+    target_tenant = _get_x_argument("tenant")
+    override_url = _get_x_argument("url")
+    strategy = settings.TENANCY_DB_STRATEGY
 
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
+    if override_url:
+        context.configure(
+            url=override_url,
+            target_metadata=target_metadata,
+            literal_binds=True,
+            dialect_opts={"paramstyle": "named"},
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+        return
 
-    Calls to context.execute() here emit the given string to the
-    script output.
+    tenants, secrets_service = _resolve_tenants_and_secrets(target_tenant)
 
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    if strategy == "row":
+        url = None
+        if tenants and secrets_service:
+            secrets = secrets_service.get_tenant_secrets(tenants[0].tenant_id)
+            url = secrets.database_config.database_uri
+        if not url:
+            url = _get_fallback_url()
+
+        context.configure(
+            url=url,
+            target_metadata=target_metadata,
+            literal_binds=True,
+            dialect_opts={"paramstyle": "named"},
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+
+    elif strategy == "schema":
+        if not tenants or not secrets_service:
+            raise ValueError("Schema strategy requires tenant configuration")
+        shared_url = (
+            secrets_service.get_tenant_secrets(tenants[0].tenant_id)
+            .database_config
+            .database_uri
+        )
+        for tenant in tenants:
+            secrets = secrets_service.get_tenant_secrets(tenant.tenant_id)
+            schema_name = _normalize_schema_name(secrets.database_config)
+            context.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}";')
+            context.execute(f'SET search_path TO "{schema_name}", public;')
+            context.configure(
+                url=shared_url,
+                target_metadata=target_metadata,
+                literal_binds=True,
+                dialect_opts={"paramstyle": "named"},
+                version_table="alembic_version",
+                version_table_schema=schema_name,
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+            context.execute("RESET search_path;")
+
+    elif strategy == "database":
+        if not tenants or not secrets_service:
+            raise ValueError("Database strategy requires tenant configuration")
+        for tenant in tenants:
+            secrets = secrets_service.get_tenant_secrets(tenant.tenant_id)
+            db_uri = secrets.database_config.database_uri
+            context.configure(
+                url=db_uri,
+                target_metadata=target_metadata,
+                literal_binds=True,
+                dialect_opts={"paramstyle": "named"},
+                version_table="alembic_version",
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+    else:
+        raise ValueError(f"Unknown tenancy strategy: {strategy!r}")
+
+
+def _run_single_db_migrations(
+    connection: Connection,
+    version_table_schema: str | None = None,
+) -> None:
     context.configure(
-        url=url,
+        connection=connection,
         target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        version_table="alembic_version",
+        version_table_schema=version_table_schema,
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
-def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
-
-    with context.begin_transaction():
-        context.run_migrations()
+def _run_schema_migrations(
+    connection: Connection,
+    tenants: list[TenantMetadata],
+    secrets_service: TenancySecretsService,
+) -> None:
+    for tenant in tenants:
+        secrets = secrets_service.get_tenant_secrets(tenant.tenant_id)
+        schema_name = _normalize_schema_name(secrets.database_config)
+        logger.info(
+            "Migrating schema '%s' for tenant '%s'...",
+            schema_name,
+            tenant.tenant_id,
+        )
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+        connection.execute(text(f'SET search_path TO "{schema_name}", public'))
+        try:
+            _run_single_db_migrations(connection, version_table_schema=schema_name)
+        finally:
+            connection.execute(text("RESET search_path"))
 
 
 async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
+    override_url = _get_x_argument("url")
+    target_tenant = _get_x_argument("tenant")
+    strategy = settings.TENANCY_DB_STRATEGY
 
-    """
+    if override_url:
+        engine = create_async_engine(override_url, poolclass=pool.NullPool)
+        async with engine.connect() as connection:
+            await connection.run_sync(_run_single_db_migrations)
+        await engine.dispose()
+        return
 
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    tenants, secrets_service = _resolve_tenants_and_secrets(target_tenant)
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    if strategy == "row":
+        url = None
+        if tenants and secrets_service:
+            secrets = secrets_service.get_tenant_secrets(tenants[0].tenant_id)
+            url = secrets.database_config.database_uri
+        if not url:
+            url = _get_fallback_url()
 
-    await connectable.dispose()
+        engine = create_async_engine(url, poolclass=pool.NullPool)
+        async with engine.connect() as connection:
+            await connection.run_sync(_run_single_db_migrations)
+        await engine.dispose()
+
+    elif strategy == "schema":
+        if not tenants or not secrets_service:
+            raise ValueError("Schema strategy requires tenant configuration")
+        first_secrets = secrets_service.get_tenant_secrets(tenants[0].tenant_id)
+        shared_url = first_secrets.database_config.database_uri
+
+        engine = create_async_engine(shared_url, poolclass=pool.NullPool)
+        async with engine.connect() as connection:
+            await connection.run_sync(_run_schema_migrations, tenants, secrets_service)
+        await engine.dispose()
+
+    elif strategy == "database":
+        if not tenants or not secrets_service:
+            raise ValueError("Database strategy requires tenant configuration")
+        for tenant in tenants:
+            secrets = secrets_service.get_tenant_secrets(tenant.tenant_id)
+            db_uri = secrets.database_config.database_uri
+            logger.info("Migrating database for tenant '%s'...", tenant.tenant_id)
+            engine = create_async_engine(db_uri, poolclass=pool.NullPool)
+            async with engine.connect() as connection:
+                await connection.run_sync(_run_single_db_migrations)
+            await engine.dispose()
+    else:
+        raise ValueError(f"Unknown tenancy strategy: {strategy!r}")
 
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-
     asyncio.run(run_async_migrations())
 
 
