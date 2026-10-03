@@ -45,6 +45,21 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 * Extensible configuration and secrets providers
 * Example CRUD service and HTTP routes
 * Structured distributed tracing and telemetry with Pydantic Logfire
+* Embedded AI Service Architect (`AGENTS.md`) and living specification (`SERVICE_SPEC.md`)
+
+---
+
+## 🤖 **Build with Your AI Coding Assistant**
+
+FastKitty is designed to be **agent-native**. It ships with an embedded Service Architect protocol in `AGENTS.md` and state persistence in `SERVICE_SPEC.md`.
+
+> [!TIP]
+> **The Recommended Developer Experience:**  
+> Rather than manually writing boilerplate, clone the repo, open it in your AI coding assistant (**Cursor**, **Antigravity**, **Claude Code**, **GitHub Copilot**, or **Windsurf**), and prompt:  
+>  
+> *"I want to build a [your-service-name]. Guide me through setup."*  
+>  
+> The **FastKitty Service Architect** will greet you, walk you through the architectural decisions one question at a time (tenancy strategy, config/secrets, domain entities, and API endpoints), recommend best practices grounded in these docs, and scaffold models, services, thin routes, and 100% passing tests for you.
 
 ---
 

@@ -1,10 +1,24 @@
 # Setup & Run (Local / Docker)
 
-FastKitty is designed to be spun up in less than 60 seconds. Choose between running the database in Docker while keeping the API local (recommended for fast iteration), or running the entire containerized stack.
+FastKitty is designed to be spun up in less than 60 seconds. Choose between letting your AI coding assistant scaffold your service automatically, or running the database and API manually.
 
 ---
 
-## Option A: Local Development with Docker PostgreSQL (Recommended)
+## Fast Track: Build with Your AI Coding Assistant 🤖
+
+FastKitty is **agent-native**. It ships with:
+- **`AGENTS.md`**: An embedded Multi-Tenant Service Architect protocol that guides AI coding assistants.
+- **`SERVICE_SPEC.md`**: A persistent living specification of your service domain, models, and endpoints.
+
+### The Recommended Workflow:
+1. Clone this repository and open the folder in **Cursor**, **Antigravity**, **Claude Code**, **GitHub Copilot**, or **Windsurf**.
+2. In the AI chat, prompt:
+   > *"I want to build a [service-name, e.g. billing-service]. Guide me through setup."*
+3. The **FastKitty Service Architect** will greet you, walk you through key architectural choices (tenancy strategy, config/secrets, models, and endpoints) one question at a time, recommend best practices from our knowledge base, and scaffold models, services, thin routes, and 100% passing tests for you.
+
+---
+
+## Manual Setup: Local Development with Docker PostgreSQL (Recommended)
 
 This option runs a local multi-tenant PostgreSQL 16 container while running the FastAPI application natively with `uv` on your host machine for instantaneous code reloading.
 
