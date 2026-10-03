@@ -4,7 +4,6 @@ import importlib
 import json
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
-from contextlib import AbstractAsyncContextManager
 
 import pytest
 from fastapi import FastAPI

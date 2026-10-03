@@ -1,8 +1,11 @@
+import logging
 from config.tenancy_providers import (
     TenancyConfigProvider,
     TenancySecretsProvider,
 )
 from schemas.tenancy import TenantConfig, TenantSecrets, TenantMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class TenancyConfigService:
@@ -25,6 +28,7 @@ class TenancyConfigService:
         if not config:
             raise ValueError(f"Tenant '{tenant_id}' not found or not configured")
 
+        logger.debug("Retrieved configuration for tenant '%s'", tenant_id)
         return config
 
 
@@ -43,4 +47,5 @@ class TenancySecretsService:
                 f"Tenant '{tenant_id}' secrets not found or not configured"
             )
 
+        logger.debug("Retrieved database secrets for tenant '%s'", tenant_id)
         return secrets

@@ -10,7 +10,7 @@ import pytest
 from api.deps.db import get_blog_posts_service, get_db
 from api.deps.tenancy import get_tenant_db_context
 from db.tenancy_strategy import TenantDBContext
-from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
+from schemas.tenancy import DatabaseConfig, TenantSecrets
 from services.blog_posts_service import BlogPostsService
 
 

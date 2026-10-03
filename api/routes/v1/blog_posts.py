@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Response, status
@@ -8,6 +9,8 @@ from api.deps.user_data import get_user_data
 from schemas.posts import BlogPostCreate, BlogPostResponse, BlogPostUpdate
 from schemas.user_data import UserData
 from services.blog_posts_service import BlogPostsService
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(
@@ -73,6 +76,11 @@ async def get_blog_post(
 ) -> BlogPostResponse:
     blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
+        logger.warning(
+            "Blog post id=%s not found for user '%s'",
+            blog_post_id,
+            user_data.user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
         )
@@ -99,6 +107,11 @@ async def update_blog_post(
 ) -> BlogPostResponse:
     blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
+        logger.warning(
+            "Blog post id=%s not found for update (user '%s')",
+            blog_post_id,
+            user_data.user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
         )
@@ -124,6 +137,11 @@ async def delete_blog_post(
 ) -> Response:
     blog_post = await service.get_post(blog_post_id, user_id=user_data.user_id)
     if not blog_post:
+        logger.warning(
+            "Blog post id=%s not found for deletion (user '%s')",
+            blog_post_id,
+            user_data.user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Blog Post not found"
         )

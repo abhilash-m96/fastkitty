@@ -167,11 +167,13 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         async with self._registry_lock:
             entry = self._engines.get(db_uri)
             if entry is None:
+                logger.info("Allocating new database engine pool for: %s", db_uri)
                 entry = self._create_entry(db_uri=db_uri, db_config=db_config)
                 self._engines[db_uri] = entry
             else:
                 self._validate_pool_config(entry=entry, db_config=db_config)
                 self._engines.move_to_end(db_uri)
+                logger.debug("Reusing cached database engine pool for: %s", db_uri)
 
             entry.active_sessions += 1
             if entry.idle_event is not None:
@@ -179,6 +181,11 @@ class DatabaseTenancyStrategy(TenancyStrategy):
 
             if len(self._engines) > self._max_engines:
                 _, entry_to_dispose = self._engines.popitem(last=False)
+                logger.info(
+                    "Engine pool LRU limit (%s) reached. Evicting oldest pool: %s",
+                    self._max_engines,
+                    entry_to_dispose.db_uri,
+                )
 
         if entry_to_dispose is not None:
             task = self._schedule_dispose(entry_to_dispose)
@@ -295,6 +302,11 @@ class _SharedEngineTenancyStrategy(TenancyStrategy):
         db_uri = db_config.database_uri
         async with self._registry_lock:
             if self._shared_entry is None:
+                logger.info(
+                    "Initializing shared database engine pool for %s strategy: %s",
+                    strategy_name,
+                    db_uri,
+                )
                 self._shared_entry = self._create_entry(
                     db_uri=db_uri, db_config=db_config
                 )
@@ -375,6 +387,11 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
         entry = await self._get_or_create_entry(db_config, strategy_name="Schema")
         session = entry.session_factory()
         try:
+            logger.debug(
+                "Switching PostgreSQL search_path to '%s', public for tenant '%s'",
+                schema_name,
+                tenant_db_context.tenant_id,
+            )
             await session.execute(text(f"SET search_path TO {schema_name}, public"))
             yield session
         except Exception:
@@ -416,6 +433,10 @@ class RowTenancyStrategy(_SharedEngineTenancyStrategy):
         _configure_row_session(session)
         token = set_current_row_tenant_id(tenant_db_context.tenant_id)
         session.info["tenant_id"] = tenant_db_context.tenant_id
+        logger.debug(
+            "Configured row-level tenant filtering for tenant '%s'",
+            tenant_db_context.tenant_id,
+        )
         try:
             yield session
         except Exception:
