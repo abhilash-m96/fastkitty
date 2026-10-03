@@ -16,6 +16,7 @@ from config.settings import (
     UserDataSource,
     get_settings,
 )
+from config.telemetry import enrich_span_with_user
 from schemas.user_data import UserData
 
 logger = logging.getLogger(__name__)
@@ -203,7 +204,13 @@ def _build_get_user_data(
 
         async def _header_handler(**kwargs) -> UserData:
             try:
-                return _extract_headers(UserDataHeaderSource, src, kwargs)
+                user_data = _extract_headers(UserDataHeaderSource, src, kwargs)
+                enrich_span_with_user(
+                    user_id=user_data.user_id,
+                    email=user_data.email,
+                    roles=user_data.roles,
+                )
+                return user_data
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -229,7 +236,13 @@ def _build_get_user_data(
                 token = _extract_bearer_token(auth_header, src.prefix)
                 if not token:
                     raise ValueError("Authorization token is required")
-                return _extract_jwt_token(src, token)
+                user_data = _extract_jwt_token(src, token)
+                enrich_span_with_user(
+                    user_id=user_data.user_id,
+                    email=user_data.email,
+                    roles=user_data.roles,
+                )
+                return user_data
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -254,7 +267,13 @@ def _build_get_user_data(
                 claims_header = kwargs.get("header_name")
                 if not claims_header:
                     raise ValueError(f"Missing required header: {src.header_name}")
-                return _extract_single_header_claims(src, claims_header)
+                user_data = _extract_single_header_claims(src, claims_header)
+                enrich_span_with_user(
+                    user_id=user_data.user_id,
+                    email=user_data.email,
+                    roles=user_data.roles,
+                )
+                return user_data
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

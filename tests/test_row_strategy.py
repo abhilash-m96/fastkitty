@@ -18,7 +18,7 @@ from db.tenancy_strategy import (
     set_current_row_tenant_id,
 )
 from models.posts import BlogPost
-from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
+from schemas.tenancy import DatabaseConfig
 
 
 class FakeAsyncSession:

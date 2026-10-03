@@ -674,6 +674,82 @@ Treat feature keys as a contract. Document the supported keys and their expected
 
 ---
 
+## Observability & Structured Logging with Pydantic Logfire
+
+FastKitty comes with built-in, production-grade telemetry and structured distributed tracing powered by [Pydantic Logfire](https://pydantic.dev/logfire) and OpenTelemetry.
+
+### What is Instrumentated Automatically
+
+- **FastAPI Endpoints**: Request paths, HTTP status codes, headers, response timings, and unhandled exceptions.
+- **SQLAlchemy Queries**: Every SQL query executed across all tenant strategies (`database`, `schema`, `row`) is recorded with parameters and latency spans.
+- **Pydantic Validation**: Model validation durations and schema validation errors.
+- **Multi-Tenant Context Propagation**: Every active trace span is automatically tagged with:
+  - `tenant.id` / `tenant_id`: The tenant handling the request (extracted from `X-Tenant-ID`).
+  - `tenant.name`: Tenant display name (from tenant configuration).
+  - `user.id` / `user.email` / `user.roles`: User identity attributes (from headers, JWT, or claims).
+
+---
+
+### Local Console Mode (Default — Zero Network, Free, No Account)
+
+By default, Logfire sends **zero data over the network**:
+
+```env
+LOGFIRE_SEND_TO_LOGFIRE=false
+```
+
+When you run FastKitty locally or in Docker, Logfire prints tree-structured, colored spans and query execution times directly to your terminal:
+
+```text
+17:01:57.495 GET /v1/hello [200 OK] (14.2ms)
+  ├── extract_tenant_config (2.1ms) [tenant.id=tenant_1]
+  └── select blog_posts where tenant_id = 'tenant_1' (3.8ms)
+```
+
+---
+
+### Cloud Web Dashboard Mode (Optional — Free Tier Available)
+
+If you or your team prefer a visual web dashboard with flame graphs, SQL query inspection, and live tenant filtering:
+
+1. **Sign up for free** at [logfire.pydantic.dev](https://logfire.pydantic.dev) (The Personal plan includes **10 million records/month free** with 30-day retention).
+2. Authenticate or retrieve your project write token:
+   ```bash
+   uv run logfire auth
+   ```
+   Or copy the project write token directly from the web dashboard.
+3. Update your `.env` file:
+   ```env
+   LOGFIRE_SEND_TO_LOGFIRE=true
+   LOGFIRE_TOKEN=your_logfire_token_here
+   LOGFIRE_ENVIRONMENT=dev  # dev | staging | prod
+   ```
+4. Start your service:
+   ```bash
+   uv run uvicorn main:app --reload
+   ```
+   Open [logfire.pydantic.dev](https://logfire.pydantic.dev) to inspect incoming requests. You can filter traces instantly by tenant using SQL queries like:
+   ```sql
+   SELECT * FROM records WHERE attributes['tenant.id'] = 'tenant_1'
+   ```
+
+---
+
+### Telemetry Configuration Reference
+
+All settings can be configured via environment variables or `.env`:
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `LOGFIRE_ENABLED` | `bool` | `true` | Master toggle to enable or disable Logfire telemetry. |
+| `LOGFIRE_SEND_TO_LOGFIRE` | `bool` | `false` | When `false`, logs are emitted only to the terminal console (zero cloud traffic). Set to `true` to export to Logfire cloud. |
+| `LOGFIRE_TOKEN` | `str \| null` | `null` | Your Logfire project write token (required if `LOGFIRE_SEND_TO_LOGFIRE=true`). |
+| `LOGFIRE_ENVIRONMENT` | `str \| null` | `null` | Deployment environment tag (`dev`, `staging`, `prod`). Defaults to `ENV` setting. |
+| `LOGFIRE_SERVICE_NAME` | `str \| null` | `null` | Service identifier for traces. Defaults to `APP_NAME` (`fastkitty`). |
+| `LOGFIRE_CONSOLE` | `bool` | `true` | Enables colored, formatted output in the terminal console. |
+
+---
+
 ## Tests
 
 The project includes automated tests for the main behavior seams in the template:
@@ -685,6 +761,7 @@ The project includes automated tests for the main behavior seams in the template
 - provider factories and provider adapters
 - route-level behavior for `/v1/hello` and `/v1/blog-posts`
 - database strategy isolation, eviction, tenant scoping, and dependency wiring
+- Logfire telemetry setup, console fallbacks, and multi-tenant span enrichment
 
 You do not need to start the FastAPI server before running tests. The suite uses FastAPI's in-process test client and shared pytest fixtures from `tests/conftest.py`.
 
@@ -693,10 +770,10 @@ You do not need to start the FastAPI server before running tests. The suite uses
 uv run pytest tests
 
 # run a single file
-uv run pytest tests/test_api_routes.py
+uv run pytest tests/test_telemetry.py
 
 # run by name
-uv run pytest tests -k hello
+uv run pytest tests -k logfire
 
 # verbose output
 uv run pytest tests -v
@@ -720,8 +797,7 @@ Keep routes thin. If a route handler is doing more than resolving dependencies, 
 
 ## Roadmap
 
-- Alembic migrations and provisioning workflows — including automatic `updated_at` trigger wiring per `TimestampedModel` table
-- Dockerfile / docker-compose
-- Structured logging
-- Logfire Pydantic logging
+- [x] Alembic migrations and provisioning workflows — including automatic `updated_at` trigger wiring per `TimestampedModel` table
+- [x] Dockerfile / docker-compose with multi-database PostgreSQL support
+- [x] Structured logging & Observability with Pydantic Logfire & OpenTelemetry
 - Extract the DB strategy layer as a standalone SQLAlchemy extension (`sqlalchemy-tenancy` or similar) — the layer is already designed for this: configure a strategy and DB secrets, get sessions, everything else is invisible

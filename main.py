@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from api.routes.v1.entry import v1_router as v1_router
 from config.settings import get_settings
+from config.telemetry import setup_telemetry
 from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
 from db.session import close_all_engines
 from db.tenancy_strategy import create_tenancy_strategy
@@ -34,6 +35,8 @@ app = FastAPI(
     redoc_url=None if settings.ENV.lower() != "dev" else "/redoc",
     openapi_url=None if settings.ENV.lower() != "dev" else "/openapi.json",
 )
+
+setup_telemetry(app, settings)
 
 app.include_router(v1_router)
 

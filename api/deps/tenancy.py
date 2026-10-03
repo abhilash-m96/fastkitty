@@ -1,6 +1,7 @@
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
+from config.telemetry import enrich_span_with_tenant
 from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
@@ -48,6 +49,7 @@ def get_tenant_config(
             detail=f"Tenant '{tenant_id}' not found or not configured",
         )
 
+    enrich_span_with_tenant(tenant_id=config.tenant_id, display_name=config.display_name)
     return config
 
 

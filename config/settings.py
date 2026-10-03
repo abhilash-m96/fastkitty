@@ -158,6 +158,32 @@ class Settings(BaseSettings):
         "Omit entirely if the service does not require user identity extraction.",
     )
 
+    # Logfire / Telemetry Settings
+    LOGFIRE_ENABLED: bool = Field(
+        default=True,
+        description="Enable or disable Logfire telemetry instrumentations",
+    )
+    LOGFIRE_SEND_TO_LOGFIRE: bool = Field(
+        default=False,
+        description="Whether to export spans to Logfire cloud servers. Defaults to False (local console mode only).",
+    )
+    LOGFIRE_TOKEN: str | None = Field(
+        default=None,
+        description="Logfire project write token (required if sending to Logfire servers)",
+    )
+    LOGFIRE_SERVICE_NAME: str | None = Field(
+        default=None,
+        description="Service name for Logfire traces; defaults to APP_NAME",
+    )
+    LOGFIRE_ENVIRONMENT: str | None = Field(
+        default=None,
+        description="Deployment environment for Logfire traces (e.g. dev, staging, prod); defaults to ENV",
+    )
+    LOGFIRE_CONSOLE: bool = Field(
+        default=True,
+        description="Enable structured colored logging to terminal console",
+    )
+
     @field_validator("USER_DATA_SOURCE", mode="before")
     @classmethod
     def parse_user_data_source(cls, value):

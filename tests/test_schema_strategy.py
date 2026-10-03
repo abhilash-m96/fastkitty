@@ -7,7 +7,7 @@ from typing import cast
 
 from config.settings import Settings
 from db.tenancy_strategy import SchemaTenancyStrategy, TenantDBContext
-from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets
+from schemas.tenancy import DatabaseConfig
 
 
 class FakeAsyncSession:
