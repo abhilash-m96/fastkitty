@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,21 +10,33 @@ from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
 from db.session import close_all_engines
 from db.tenancy_strategy import create_tenancy_strategy
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info(
+        "Starting up FastKitty (strategy=%s, env=%s)...",
+        settings.TENANCY_DB_STRATEGY,
+        settings.ENV,
+    )
     validate_tenancy_strategy_startup(settings)
     tenancy_strategy = create_tenancy_strategy(settings)
     await tenancy_strategy.setup(app)
+    logger.info(
+        "FastKitty tenancy strategy '%s' setup complete. Ready to serve requests.",
+        settings.TENANCY_DB_STRATEGY,
+    )
     try:
         yield
     finally:
+        logger.info("Shutting down FastKitty and releasing resources...")
         await tenancy_strategy.teardown()
         await (
             close_all_engines()
         )  # closes shared/foundation engines; database strategy owns its own
+        logger.info("Database engines and pools disposed cleanly.")
 
 
 app = FastAPI(

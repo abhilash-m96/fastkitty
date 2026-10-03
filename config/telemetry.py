@@ -116,6 +116,9 @@ def setup_telemetry(app: FastAPI, settings: Settings) -> None:
     except Exception as e:
         logger.warning("Failed to instrument SQLAlchemy with Logfire: %s", e)
 
+    # Bridge Python standard logging to Logfire spans
+    logging.getLogger().addHandler(logfire.LogfireLoggingHandler())
+
     # Add Tenant / User context enrichment middleware
     app.add_middleware(LogfireTenantMiddleware)
     logger.info(

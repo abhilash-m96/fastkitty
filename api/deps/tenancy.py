@@ -1,3 +1,4 @@
+import logging
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
@@ -9,6 +10,8 @@ from config.tenancy_providers_factory import (
 from db.tenancy_strategy import TenantDBContext
 from schemas.tenancy import FeatureConfig, TenantConfig, TenantSecrets
 from services.tenancy_service import TenancyConfigService, TenancySecretsService
+
+logger = logging.getLogger(__name__)
 
 
 def get_tenant_id(
@@ -44,11 +47,13 @@ def get_tenant_config(
     config = tenancy_config_service.get_tenant_config(tenant_id=tenant_id)
 
     if not config:
+        logger.warning("Tenant '%s' not found or not configured", tenant_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tenant '{tenant_id}' not found or not configured",
         )
 
+    logger.debug("Resolved tenant configuration for '%s' (%s)", config.tenant_id, config.display_name)
     enrich_span_with_tenant(tenant_id=config.tenant_id, display_name=config.display_name)
     return config
 
@@ -57,6 +62,7 @@ def require_active_tenant(
     tenant_config: TenantConfig = Depends(get_tenant_config),
 ) -> TenantConfig:
     if not tenant_config.is_active:
+        logger.warning("Rejected inactive tenant: %s", tenant_config.tenant_id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Tenant '{tenant_config.tenant_id}' is not active!",
