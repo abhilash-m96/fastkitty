@@ -39,10 +39,31 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 - Per-tenant feature configuration
 - Extensible config and secrets providers
 - Example CRUD service and routes
+- Embedded AI Service Architect (`AGENTS.md`) and living spec (`SERVICE_SPEC.md`)
 
 ---
 
-## Quickstart
+## 🤖 Recommended: Build Your Service with Your AI Coding Assistant
+
+FastKitty is an **agent-native SaaS foundation**. It ships with an interactive Service Architect protocol in [`AGENTS.md`](AGENTS.md) and persistent state tracking in [`SERVICE_SPEC.md`](SERVICE_SPEC.md).
+
+The fastest way to build your production service:
+
+1. **Clone the repo**:
+   ```bash
+   git clone https://github.com/abhilash-m96/fastkitty.git my-service
+   cd my-service
+   ```
+2. **Open in your favorite AI coding assistant**:
+   Open the folder in **Cursor**, **Antigravity**, **Claude Code**, **GitHub Copilot**, or **Windsurf**.
+3. **Ask your agent**:
+   > *"I want to build a [service-name, e.g. invoicing-service]. Guide me through setup."*
+
+The embedded **FastKitty Service Architect** will greet you, walk you through key architectural choices (tenancy strategy, config/secrets, models, and endpoints) one question at a time, recommend best practices from our knowledge base, and scaffold models, services, thin routes, and 100% passing tests for you.
+
+---
+
+## Quickstart (Manual Setup)
 
 ### Option A: Local Development with Docker PostgreSQL (Recommended)
 
