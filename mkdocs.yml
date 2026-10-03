@@ -1,0 +1,84 @@
+site_name: fastkit(ty) 🐱
+site_description: Multi-tenant SaaS FastAPI template with explicit tenancy, dynamic dependency injection, and clean architecture.
+site_url: http://localhost:8008
+
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+
+  - Quickstart:
+      - 1. Setup & Run (Local / Docker): quickstart/quickstart.md
+      - 2. The Greet Endpoint (Dynamic Hello): quickstart/dynamic-hello.md
+
+  - Tutorial - Multi-Tenant Blog App:
+      - 1. Blog App (CRUD & Rate Limiting): tutorial/blog-posts.md
+      - 2. Tenant Secrets & Database Strategies: tutorial/storage-and-secrets.md
+      - 3. Docker & Interactive Debugging (pdb): tutorial/docker-and-debugging.md
+
+  - Architecture & Design:
+      - Project Structure & Component Cleanliness: architecture/project-structure.md
+      - Request & Tenancy Lifecycle: architecture/request-flow.md
+      - Auth as a Peer Concern: architecture/auth-gateway.md
+
+  - Database Multi-Tenancy (Deep Dive):
+      - The 3 Strategies & Tradeoffs: database/overview-and-tradeoffs.md
+      - Database Strategy (Isolated DBs): database/database-strategy.md
+      - Schema Strategy (PostgreSQL Schemas): database/schema-strategy.md
+      - Row Strategy (Shared Table Scoping): database/row-strategy.md
+      - Database Migrations (Alembic): database/migrations.md
+
+  - Developer Guides:
+      - "End-to-End: Adding a New Route & Table": guides/adding-a-new-route.md
+      - "Advanced: Custom Secrets Providers": guides/custom-secrets-providers.md
+      - "Advanced: Custom Config Providers": guides/custom-config-providers.md
+      - Testing Guide & Test Seams: guides/testing-guide.md
+
+  - Observability & Logging:
+      - Structured Logging with Logfire: observability/logfire.md

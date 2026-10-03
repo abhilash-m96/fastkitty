@@ -18,3 +18,4 @@ wheels/
 # Agent & local workflow artifacts
 FEATURE_PLAN.md
 *.docx
+site/

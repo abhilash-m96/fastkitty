@@ -46,7 +46,7 @@ async def test_blog_posts_service_create_post_persists_and_refreshes() -> None:
     service = BlogPostsService(db)
     payload = BlogPostCreate(title="Post", content="Body")
 
-    post = await service.create_post(payload, user_id="user-1")
+    post = await service.create_post(payload, "user-1")
 
     assert isinstance(post, BlogPost)
     assert post.title == "Post"
@@ -55,6 +55,50 @@ async def test_blog_posts_service_create_post_persists_and_refreshes() -> None:
     db.add.assert_called_once_with(post)
     db.commit.assert_awaited_once_with()
     db.refresh.assert_awaited_once_with(post)
+
+
+@pytest.mark.asyncio
+async def test_blog_posts_service_enforces_daily_post_limit() -> None:
+    """Raise 429 when tenant has reached or exceeded max_daily_posts quota."""
+    from fastapi import HTTPException
+
+    db = Mock()
+    # Mock count query returning 1 post created today
+    db.scalar = AsyncMock(return_value=1)
+    service = BlogPostsService(db)
+    payload = BlogPostCreate(title="Over quota", content="Body")
+
+    # Limit is 1, count is 1 -> should raise 429
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_post(
+            payload,
+            "user-1",
+            feature_config={"max_daily_posts": 1},
+        )
+
+    assert exc_info.value.status_code == 429
+    assert "Daily posting limit of 1 reached" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_blog_posts_service_allows_post_under_daily_limit() -> None:
+    """Allow post creation when posts created today is below quota."""
+    db = Mock()
+    db.scalar = AsyncMock(return_value=0)
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    service = BlogPostsService(db)
+    payload = BlogPostCreate(title="Within quota", content="Body")
+
+    post = await service.create_post(
+        payload,
+        "user-1",
+        feature_config={"max_daily_posts": 5},
+    )
+
+    assert post.title == "Within quota"
+    db.add.assert_called_once()
+
 
 
 @pytest.mark.asyncio

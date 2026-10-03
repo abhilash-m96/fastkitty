@@ -1,0 +1,76 @@
+# fastkit(ty) 😼  
+
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
+![License](https://img.shields.io/github/license/abhilash-m96/fastkitty)
+![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social)
+
+---
+
+## **Ever needed your FastAPI service to behave differently for different tenants?**
+- Give one tenant unlimited API access while restricting another?
+- Enable a feature for one tenant but disable it for another?
+- Make your application behave differently based on which tenant is making the request?
+
+---
+
+That's multi-tenant SaaS — and **fastkit(ty) 😼** is a FastAPI multi-tenant service toolkit and template built for it.
+
+A pragmatic foundation for building multi-tenant services with explicit tenant context, clear dependency boundaries, and a service-first architecture.
+
+Tenant awareness flows through your application — not hidden in globals or middleware — so your business logic stays predictable, testable, and easy to evolve.
+
+Tenancy, feature flags, database strategy, config, secrets, and identity are all pluggable and cleanly separated, letting you adapt your model without rewriting your core business logic.
+
+---
+
+## **Why FastKit(ty)?**
+
+* **Focus on business logic** — Tenancy, configuration, secrets, identity, and database wiring are handled for you. Configure what you need and focus on what matters.
+* **Flexible by design** — Swap configuration or secrets providers, or plug in your own, without touching your core business logic.
+* **Explicit over magic** — Tenant context flows through dependencies you can read, trace, and test. Nothing hidden.
+* **Service-first architecture** — A clean service layer that can be exposed through HTTP, a CLI, or other interfaces.
+* **Support multiple tenancy strategies** — Choose shared database, schema-per-tenant, or database-per-tenant with a single flag.
+
+---
+
+## **What you get**
+
+* Explicit tenancy via `X-Tenant-ID`
+* Three database strategies for multi-tenancy: `database`, `schema`, and `row`
+* Clean dependency injection for tenancy, database, and identity
+* Service layer pattern with thin HTTP routes
+* Configurable identity providers: headers or JWT
+* Per-tenant feature configuration
+* Extensible configuration and secrets providers
+* Example CRUD service and HTTP routes
+* Structured distributed tracing and telemetry with Pydantic Logfire
+
+---
+
+## **Design Philosophy**
+
+FastKitty is built on one single strong opinion: that **it should not be opinionated or impose its own opinions on how your application should be built.**
+This isn't another framework with its own way of doing things *(IYKYK).* Instead, it follows a set of fundamental software design principles, and if you're comfortable with them, FastKitty should feel pretty natural.
+
+> Bored? 👉 **[Jump straight to Quickstart](quickstart/quickstart.md)**.  
+> Nerds, continue reading below.
+
+
+- **Tenancy is infrastructure, not business logic**: Routes and services never know which DB strategy is active. They receive a session, query it, and return results. Whether that session points to a dedicated database, a schema-scoped connection, or a row-filtered shared pool is decided at startup and invisible above the dependency layer. This means your business logic doesn't change when you change your tenancy model.
+
+- **Tenant context is explicit, not ambient**: Tenant identity flows through FastAPI's dependency injection — you can see it, trace it, and test it. There are no thread-locals, no request-scoped globals, no middleware that silently injects context. If a route needs tenant context, it declares it. If it doesn't, it doesn't.
+
+- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant with a missing schema_name in schema mode, or a conflicting DB URL in row mode, raises immediately — not on the first request from that tenant.
+
+- **Auth is a peer concern**: fastkit(ty) is intentionally auth-agnostic. Auth belongs upstream — in a gateway or dedicated auth service — not inside a multi-tenant service template. By the time a request reaches your service, auth is already done. The template reads already-validated identity from incoming requests via USER_DATA_SOURCE. It does not validate or issue tokens.
+
+- **Config and secrets are provider-agnostic**: The template ships with file-based providers for local development and HashiCorp Vault/Consul adapters for production. Swapping providers requires no changes to business logic — only config.
+
+- **Services own business logic**: HTTP routes are thin. They resolve dependencies, call a service method, and return a response. Business logic lives in services/ where it can be tested without an HTTP client and reused across interfaces.
+
+
+## **Next Steps**
+
+Ready to get started?  
+Proceed to **[Quickstart: Setup & Run](quickstart/quickstart.md)** to run the project locally or in Docker in under 60 seconds!

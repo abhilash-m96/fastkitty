@@ -2,10 +2,13 @@
 
 from datetime import UTC, datetime
 
+from fastapi import HTTPException, status
+
 from api.deps.db import get_blog_posts_service
 from api.deps.tenancy import get_tenant_config
 from api.deps.user_data import get_user_data
 from models.posts import BlogPost
+from schemas.tenancy import TenantConfig
 from schemas.user_data import UserData
 
 
@@ -95,7 +98,7 @@ def test_create_blog_post_returns_created_post(
     post = _blog_post(title="Created post", content="Created body")
 
     class FakeBlogPostsService:
-        async def create_post(self, payload, *, user_id: str):
+        async def create_post(self, payload, user_id, feature_config=None):
             assert payload.title == "Created post"
             assert payload.content == "Created body"
             assert user_id == user_payload["user_id"]
@@ -118,6 +121,46 @@ def test_create_blog_post_returns_created_post(
     assert response.status_code == 201
     assert response.json()["title"] == "Created post"
     assert response.json()["author"] == "user-123"
+
+
+def test_create_blog_post_passes_feature_config_and_handles_429(
+    client,
+    apply_overrides,
+    user_payload,
+) -> None:
+    """Raise 429 when the service rejects the request due to tenant quota limit."""
+    class QuotaExceededBlogPostsService:
+        async def create_post(self, payload, user_id, feature_config=None):
+            assert feature_config == {"max_daily_posts": 1}
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Daily posting limit of 1 reached for this tenant.",
+            )
+
+    tenant_with_quota = TenantConfig(
+        tenant_id="tenant_1",
+        display_name="Tenant One",
+        is_active=True,
+        features={"blog_posts": {"max_daily_posts": 1}},
+    )
+
+    apply_overrides(
+        {
+            get_tenant_config: lambda: tenant_with_quota,
+            get_blog_posts_service: lambda: QuotaExceededBlogPostsService(),
+            get_user_data: lambda: UserData(**user_payload),
+        }
+    )
+
+    response = client.post(
+        "/v1/blog-posts",
+        json={"title": "Exceeded Post", "content": "Body"},
+        headers={"X-Tenant-ID": "tenant_1"},
+    )
+
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Daily posting limit of 1 reached for this tenant."}
+
 
 
 def test_list_blog_posts_returns_user_posts(
