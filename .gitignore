@@ -9,8 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
-# VS code:
+# VS code
 .vscode/
 
 # ENV
 .env
+
+# Agent & local workflow artifacts
+FEATURE_PLAN.md
+*.docx
