@@ -314,17 +314,21 @@ The right strategy depends on your isolation requirements and scale. This is a s
 
 Start with `row` if you are early stage. The template is designed so you can migrate to `schema` or `database` by changing one env var and updating your secrets — your routes and services change nothing.
 
-### RDBMS Compatibility: Why FastKitty is Built Primarily for PostgreSQL
+### RDBMS Compatibility & Multi-Database Engine Support
 
-FastKitty is **primarily built and optimized for PostgreSQL**. While SQL syntax is broadly similar across engines, the concept and implementation of a "schema" differs fundamentally across relational databases:
+FastKitty's database foundation is built on **SQLAlchemy 2.0 async**, providing broad multi-database support with specific architectural tradeoffs:
 
-| Database | Sub-Schema Support within a DB | How it Works & Compatibility with FastKitty |
+- **`database` strategy**: Works across **any** SQLAlchemy-supported RDBMS (PostgreSQL, MySQL, MariaDB, SQLite, MSSQL). Each tenant connects to their own independent database instance, cluster, or file.
+- **`row` strategy**: Works across **any** relational database. Isolation is enforced at the ORM layer via automatic `WHERE tenant_id = :id` criteria, requiring only standard SQL column filtering.
+- **`schema` strategy**: Specifically designed and optimized for **PostgreSQL**. PostgreSQL is unique in providing native sub-schema namespaces within a single database and dynamic session-level switching via `SET search_path TO <schema>, public`.
+
+| Database | Supported FastKitty Strategies | How Sub-Schemas Work & Compatibility Notes |
 |---|---|---|
-| **PostgreSQL** | **Native First-Class** | **Full Support (Primary Target)**. A single database instance can hold many isolated schemas. Dynamic session switching via `SET search_path TO <schema>, public` provides lightweight, fast schema isolation with shared connection pooling. FastKitty's async driver (`asyncpg`) and migration runner are built for PostgreSQL. |
-| **MySQL / MariaDB** | **No Sub-Schemas** | In MySQL, **`DATABASE` and `SCHEMA` are synonyms**. Executing `CREATE SCHEMA tenant_1` is identical to `CREATE DATABASE tenant_1`. MySQL has no concept of schemas *inside* a database. If using MySQL, developers must use either the **`database`** strategy (separate MySQL databases) or the **`row`** strategy. |
-| **Oracle** | **Tied to Users** | In Oracle, a schema is synonymous with a database `USER`. Switching schemas dynamically requires `ALTER SESSION SET CURRENT_SCHEMA = tenant_1`. |
-| **Microsoft SQL Server** | **Namespaces Only** | Schemas exist within a database (`tenant_1.table`), but lack dynamic session-level `search_path` switching without user credential changes. |
-| **SQLite** | **File-Based** | Single-file database without native schema namespaces (unless attaching files). |
+| **PostgreSQL** | **All (`database`, `schema`, `row`)** | **Primary Target**. Full native support for all 3 strategies. Includes dynamic `search_path` schema switching, async pooling via `asyncpg`, and automated multi-tenant Alembic migrations. |
+| **MySQL / MariaDB** | **`database`, `row`** | In MySQL, **`DATABASE` and `SCHEMA` are exact synonyms** (`CREATE SCHEMA` is identical to `CREATE DATABASE`). There are no sub-schemas inside a MySQL database. Use either `database` strategy (separate MySQL databases) or `row` strategy. |
+| **SQLite** | **`database`, `row`** | Single-file database. Supported for `database` (separate `.db` files per tenant) and `row` (single `.db` file with `tenant_id` column). No native sub-schemas. |
+| **Microsoft SQL Server** | **`database`, `row`** | Full support for `database` and `row` strategies. While MSSQL supports schema namespaces (`tenant_1.table`), it lacks dynamic per-connection `search_path` switching without user credential changes. |
+| **Oracle** | **`database`, `row`** | Full support for `database` and `row` strategies. In Oracle, a schema is synonymous with a database `USER`. |
 
 > [!NOTE]
 > **Single Database Server (Dev) vs. Multi-Server / Multi-Cluster (Production)**
@@ -334,6 +338,12 @@ FastKitty is **primarily built and optimized for PostgreSQL**. While SQL syntax 
 > - **In `database` strategy**: Tenants can be distributed across completely separate physical or cloud RDS clusters in different AWS/GCP regions (e.g. Tenant 1 on `eu-west-1.rds.amazonaws.com` and Tenant 2 on `us-east-1.rds.amazonaws.com`).
 > - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
 > - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
+
+> [!TIP]
+> **Why `tenants_config.json` Never Changes Between Environments**
+> FastKitty enforces a strict separation between **identity/features** and **infrastructure secrets**:
+> - `tenants_config.json` stores tenant IDs, display names, activation status, and business feature flags. It contains no network hosts or credentials and remains completely identical whether running locally, in Docker, or across cloud environments.
+> - `tenants_secrets.json` stores database connection strings and credentials (`host`, `port`, `username`, `password`, `database_name`), which can be swapped for environment-specific secrets (e.g. `tenants_secrets.docker.json` or HashiCorp Vault / GCP Secret Manager in production).
 
 ### Configuring a Strategy
 
