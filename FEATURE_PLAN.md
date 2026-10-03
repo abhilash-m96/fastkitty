@@ -1,13 +1,11 @@
 # Feature Plan: Multi-Tenant Database Migrations
 
 ## Chunks
-- [ ] feat/alembic-foundation — Add alembic dependency, explicit model re-exports in models/__init__.py, alembic.ini, and base migration for BlogPost
-- [ ] feat/multi-tenant-migrations — Multi-strategy migration runner in alembic/env.py supporting row, schema, and database isolation modes
-- [ ] feat/migration-tests — Integration and unit tests verifying migrations and schema/database isolation across all three strategies
-- [ ] docs/migration-guide — Migration operational guide, CLI examples, and README callouts for raw SQL limitations
+- [ ] feat/alembic-foundation — Add alembic dependency, explicit model re-exports in models/__init__.py, alembic.ini, and async migration scaffolding
+- [ ] feat/multi-tenant-migrations — Multi-strategy migration runner in alembic/env.py supporting row, schema, and database isolation modes with -x tenant=... filtering
+- [ ] feat/blog-posts-migration — Initial migration for BlogPost, multi-strategy test coverage, migration guide, and README documentation links
 
 ## Stack Hierarchy
 feat/alembic-foundation -> epic-configurable-db-strategy
 feat/multi-tenant-migrations -> feat/alembic-foundation
-feat/migration-tests -> feat/multi-tenant-migrations
-docs/migration-guide -> feat/migration-tests
+feat/blog-posts-migration -> feat/multi-tenant-migrations
