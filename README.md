@@ -346,13 +346,36 @@ await session.execute(update(Post).values(title="..."))
 
 For raw SQL against tenant-scoped tables, always include an explicit `WHERE tenant_id = :tid` clause. This is a documented limitation, not a planned fix — the ORM path covers the common case and the escape hatch is documented so developers know where the boundary is.
 
-**`updated_at` on bulk updates**
+**`updated_at` on bulk updates and raw SQL**
 
-The `onupdate` hook on `TimestampedModel.updated_at` fires for ORM-tracked updates only. Core-level bulk updates will not stamp `updated_at`. A PostgreSQL `BEFORE UPDATE` trigger is the correct fix and will be wired automatically via an Alembic migration helper when migrations are in scope.
+The `onupdate` hook on `TimestampedModel.updated_at` fires for ORM-tracked updates only. Core-level bulk updates and raw SQL bypass SQLAlchemy's ORM event cycle and will not automatically update `updated_at` or enforce `tenant_id` scoping. If you execute raw SQL or bulk statements, you must explicitly manage timestamps and tenant isolation in your SQL statements.
 
 **Pool config conflicts in database strategy**
 
 Two tenants pointing to the same DB URL share one engine. If their secrets specify different pool settings (e.g. different `pool_size`), the second tenant's first request will raise a `ValueError`. Ensure all tenants sharing a DB URL agree on pool configuration.
+
+---
+
+## Database Migrations
+
+FastKitty includes multi-tenancy-aware database migrations using [Alembic](https://alembic.sqlalchemy.org/) and async SQLAlchemy (`asyncpg`). Migrations dynamically adapt to the active `TENANCY_DB_STRATEGY`:
+- **`row` strategy**: Migrates shared tables in the `public` schema.
+- **`schema` strategy**: Discovers active tenants, creates schemas if needed, sets `search_path`, and runs migrations with isolated version tracking per tenant schema.
+- **`database` strategy**: Resolves tenant database URIs and runs migrations across isolated tenant databases independently.
+
+Quick CLI usage:
+```bash
+# Run migrations across all active tenants
+uv run alembic upgrade head
+
+# Run migrations for a specific tenant
+uv run alembic -x tenant=tenant_1 upgrade head
+
+# Generate raw SQL preview (offline mode)
+uv run alembic upgrade head --sql
+```
+
+For the comprehensive guide, strategy behaviors, and model registration instructions, see the [Database Migrations Guide](docs/migrations.md).
 
 ---
 
