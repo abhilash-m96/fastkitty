@@ -4,9 +4,10 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Response, status
 
 from api.deps.db import get_blog_posts_service
-from api.deps.tenancy import require_active_tenant
+from api.deps.tenancy import get_feature_config, require_active_tenant
 from api.deps.user_data import get_user_data
 from schemas.posts import BlogPostCreate, BlogPostResponse, BlogPostUpdate
+from schemas.tenancy import FeatureConfig
 from schemas.user_data import UserData
 from services.blog_posts_service import BlogPostsService
 
@@ -21,6 +22,7 @@ router = APIRouter(
 
 @router.post(
     "/blog-posts",
+    name="blog_posts",
     status_code=status.HTTP_201_CREATED,
     response_model=BlogPostResponse,
     summary="Create blog post",
@@ -28,15 +30,21 @@ router = APIRouter(
     responses={
         status.HTTP_201_CREATED: {"description": "Blog post created successfully"},
         status.HTTP_400_BAD_REQUEST: {"description": "Invalid request payload"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Daily post quota exceeded"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Server error"},
     },
 )
 async def create_blog_post(
     payload: Annotated[BlogPostCreate, Body()],
+    feature_config: FeatureConfig | None = Depends(get_feature_config("blog_posts")),
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: UserData = Depends(get_user_data),
 ) -> BlogPostResponse:
-    blog_post = await service.create_post(payload, user_id=user_data.user_id)
+    blog_post = await service.create_post(
+        payload,
+        user_data.user_id,
+        feature_config=feature_config,
+    )
     return BlogPostResponse.model_validate(blog_post)
 
 

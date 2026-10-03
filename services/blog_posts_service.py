@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
 import logging
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.posts import BlogPost
 from schemas.posts import BlogPostCreate, BlogPostUpdate
+from schemas.tenancy import FeatureConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +34,31 @@ class BlogPostsService:
         )
         return result
 
-    async def create_post(self, payload: BlogPostCreate, *, user_id: str) -> BlogPost:
+    async def create_post(
+        self,
+        payload: BlogPostCreate,
+        user_id: str,
+        feature_config: FeatureConfig | None = None,
+    ) -> BlogPost:
         logger.info("Creating blog post '%s' for author '%s'", payload.title, user_id)
+
+        max_daily_posts = feature_config.get("max_daily_posts") if feature_config else None
+        if max_daily_posts is not None:
+            today_start = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            count_query = (
+                select(func.count())
+                .select_from(BlogPost)
+                .where(BlogPost.created_at >= today_start)
+            )
+            posts_today = await self.db.scalar(count_query) or 0
+            if posts_today >= max_daily_posts:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Daily posting limit of {max_daily_posts} reached for this tenant.",
+                )
+
         post = BlogPost(title=payload.title, content=payload.content, author=user_id)
         self.db.add(post)
         await self.db.commit()
