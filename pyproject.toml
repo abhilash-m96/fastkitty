@@ -16,6 +16,7 @@ dependencies = [
     "boto3>=1.34.0",
     "python-consul2>=0.1.5",
     "hvac>=2.3.0",
+    "alembic>=1.20.0",
 ]
 
 [dependency-groups]
