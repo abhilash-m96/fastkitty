@@ -44,23 +44,101 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 
 ## Quickstart
 
-**1. Install dependencies**
+### Option A: Local Development with Docker PostgreSQL (Recommended)
+
+**1. Start the PostgreSQL service (with multi-tenant databases pre-configured)**
+
+```bash
+docker compose up -d postgres
+```
+This starts PostgreSQL 16 on `localhost:5432` and automatically runs [`docker/init-db.sh`](docker/init-db.sh) to create `tenant_1`, `tenant_2`, and `fastkitty_shared` databases.
+
+**2. Install dependencies & create environment file**
 
 ```bash
 uv sync
-```
-
-**2. Create your env file**
-
-```bash
 cp .env.example .env
 ```
 
-**3. Run the API**
+**3. Run database migrations**
+
+```bash
+uv run alembic upgrade head
+```
+
+**4. Run the API with auto-reload**
 
 ```bash
 uv run uvicorn main:app --reload
 ```
+
+---
+
+### Option B: Full Containerized Stack
+
+To run both PostgreSQL and the FastKitty API containerized:
+
+```bash
+docker compose up --build -d
+```
+PostgreSQL boots, tenant databases are created, migrations run automatically on startup, and the API is live at `http://localhost:8000` with code reload.
+
+---
+
+### Interactive Debugging with Docker & `pdb`
+
+The `api` container runs with `stdin_open: true` and `tty: true`, enabling full interactive debugging with Python's built-in debugger.
+
+#### 1. Add a Breakpoint
+Drop `breakpoint()` (or `import pdb; pdb.set_trace()`) anywhere in your route, dependency, or service code:
+
+```python
+@router.get("/hello", name="greet")
+async def hello(
+    tenant_config: TenantConfig = Depends(get_tenant_config),
+):
+    breakpoint()  # execution pauses here
+    message = ...
+```
+
+#### 2. Trigger the Code
+Send an HTTP request that hits the breakpoint:
+
+```bash
+curl -H "X-Tenant-ID: tenant_1" http://127.0.0.1:8000/v1/hello
+```
+The request pauses awaiting debugger input.
+
+#### 3. Attach to the Container
+In another terminal, attach directly to the running container:
+
+```bash
+docker attach fastkitty-api
+```
+
+You are now in the live `(Pdb)` prompt:
+- `n` — step to next line
+- `s` — step into function
+- `c` — continue execution
+- `p <variable>` — evaluate and print expression
+- `l` — list surrounding code
+
+> [!TIP]
+> **Detaching without stopping the container**:
+> Press **`Ctrl+P`** followed by **`Ctrl+Q`** to detach your terminal while leaving the container running.
+
+#### 4. Interactive Container Shell
+To inspect files or test Python code inside the container environment:
+
+```bash
+# Open interactive bash shell
+docker compose exec -it api bash
+
+# Open Python REPL inside container environment
+docker compose exec -it api python
+```
+
+---
 
 **4. Try it — same endpoint, different tenants**
 
@@ -235,6 +313,37 @@ The right strategy depends on your isolation requirements and scale. This is a s
 | `row` | Weakest — column filter only | Lowest — one pool, one schema | B2C products, large tenant counts, cost-sensitive |
 
 Start with `row` if you are early stage. The template is designed so you can migrate to `schema` or `database` by changing one env var and updating your secrets — your routes and services change nothing.
+
+### RDBMS Compatibility & Multi-Database Engine Support
+
+FastKitty's database foundation is built on **SQLAlchemy 2.0 async**, providing broad multi-database support with specific architectural tradeoffs:
+
+- **`database` strategy**: Works across **any** SQLAlchemy-supported RDBMS (PostgreSQL, MySQL, MariaDB, SQLite, MSSQL). Each tenant connects to their own independent database instance, cluster, or file.
+- **`row` strategy**: Works across **any** relational database. Isolation is enforced at the ORM layer via automatic `WHERE tenant_id = :id` criteria, requiring only standard SQL column filtering.
+- **`schema` strategy**: Specifically designed and optimized for **PostgreSQL**. PostgreSQL is unique in providing native sub-schema namespaces within a single database and dynamic session-level switching via `SET search_path TO <schema>, public`.
+
+| Database | Supported FastKitty Strategies | How Sub-Schemas Work & Compatibility Notes |
+|---|---|---|
+| **PostgreSQL** | **All (`database`, `schema`, `row`)** | **Primary Target**. Full native support for all 3 strategies. Includes dynamic `search_path` schema switching, async pooling via `asyncpg`, and automated multi-tenant Alembic migrations. |
+| **MySQL / MariaDB** | **`database`, `row`** | In MySQL, **`DATABASE` and `SCHEMA` are exact synonyms** (`CREATE SCHEMA` is identical to `CREATE DATABASE`). There are no sub-schemas inside a MySQL database. Use either `database` strategy (separate MySQL databases) or `row` strategy. |
+| **SQLite** | **`database`, `row`** | Single-file database. Supported for `database` (separate `.db` files per tenant) and `row` (single `.db` file with `tenant_id` column). No native sub-schemas. |
+| **Microsoft SQL Server** | **`database`, `row`** | Full support for `database` and `row` strategies. While MSSQL supports schema namespaces (`tenant_1.table`), it lacks dynamic per-connection `search_path` switching without user credential changes. |
+| **Oracle** | **`database`, `row`** | Full support for `database` and `row` strategies. In Oracle, a schema is synonymous with a database `USER`. |
+
+> [!NOTE]
+> **Single Database Server (Dev) vs. Multi-Server / Multi-Cluster (Production)**
+> In local development and Docker Compose, all logical databases (`tenant_1`, `tenant_2`, `fastkitty_shared`) and tenant schemas run inside a single PostgreSQL server container (`localhost:5432`) for convenience and zero-cost local setup.
+>
+> However, because every tenant's `DatabaseConfig` independently defines `host`, `port`, `username`, `password`, and `database_name`:
+> - **In `database` strategy**: Tenants can be distributed across completely separate physical or cloud RDS clusters in different AWS/GCP regions (e.g. Tenant 1 on `eu-west-1.rds.amazonaws.com` and Tenant 2 on `us-east-1.rds.amazonaws.com`).
+> - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
+> - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
+
+> [!TIP]
+> **Why `tenants_config.json` Never Changes Between Environments**
+> FastKitty enforces a strict separation between **identity/features** and **infrastructure secrets**:
+> - `tenants_config.json` stores tenant IDs, display names, activation status, and business feature flags. It contains no network hosts or credentials and remains completely identical whether running locally, in Docker, or across cloud environments.
+> - `tenants_secrets.json` stores database connection strings and credentials (`host`, `port`, `username`, `password`, `database_name`), which can be swapped for environment-specific secrets (e.g. `tenants_secrets.docker.json` or HashiCorp Vault / GCP Secret Manager in production).
 
 ### Configuring a Strategy
 
