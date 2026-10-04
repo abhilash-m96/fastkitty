@@ -49,8 +49,11 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
 * **`schema` strategy**: Strong isolation via PostgreSQL schema namespaces. The `search_path` is set per connection checkout and safely reset on checkin.
 * **`row` strategy**: FastKitty automatically injects tenant filters on ORM queries via `with_loader_criteria` and stamps `tenant_id` on new models.
 
-### Known Limitations
+### Known Limitations & Trade-offs
 
-> [!WARNING]
-> **Raw SQL ORM Bypass (`row` strategy)**:  
-> When running `TENANCY_DB_STRATEGY=row`, SQLAlchemy's `with_loader_criteria` intercepts only ORM-level queries (`select(Model)`, `session.scalars(...)`). If a developer executes **raw SQL** (`session.execute(text("SELECT * FROM blog_posts"))`), the ORM criteria hook is **bypassed**. In `row` strategy, raw SQL must include manual `WHERE tenant_id = :tenant_id` checks. In `database` and `schema` strategies, raw SQL is still fully tenant-isolated.
+* **Raw SQL ORM Bypass (`row` strategy)**:  
+  When running `TENANCY_DB_STRATEGY=row`, SQLAlchemy's `with_loader_criteria` intercepts only ORM-level queries (`select(Model)`, `session.scalars(...)`). If a developer executes **raw SQL** (`session.execute(text("SELECT * FROM blog_posts"))`), the ORM criteria hook is **bypassed**. In `row` strategy, raw SQL must include manual `WHERE tenant_id = :tenant_id` checks. In `database` and `schema` strategies, raw SQL is still fully tenant-isolated.
+* **Engine Support & DDL Complexity (`schema` strategy)**:  
+  Not all database engines support schemas (e.g. MySQL and SQLite lack true schema namespaces; in MySQL, `SCHEMA` is synonymous with `DATABASE`). Additionally, running schema migrations and DDL upgrades across hundreds of tenant schemas can become operationally complex and slow.
+* **Resource & Infrastructure Costs (`database` strategy)**:  
+  Dedicated physical or logical databases incur the highest infrastructure costs and connection pool resource consumption (managed via LRU cache). Tenants can be separate physical/managed database servers OR separate logical databases within the same server.

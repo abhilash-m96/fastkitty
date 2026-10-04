@@ -81,18 +81,12 @@ When configuring a new service, **execute all steps sequentially, asking ONE que
   - Prompt:
     > *"In FastKitty, tenant differences are driven entirely by declarative configuration rather than code changes. For a `<domain>` service, typical tenant differentiators include `<example_quotas>` and `<example_feature_flags>`. What behavior, quotas, or features should differ across your tenant tiers?"*
 
-### Step 2: Multi-Tenancy Strategy (Neutral Presentation of Options & Trade-offs)
-- Consult `docs/database/overview-and-tradeoffs.md`.
-- **Neutral Presentation (Do NOT push any option as recommended)**: Present all three database tenancy strategies objectively with their operational characteristics and concrete downsides:
-  - **Row-level isolation (`row`)**:
-    - *How it works*: Single shared database and tables, scoped by the indexed `tenant_id` column.
-    - *Downside / Risk*: If developers are not careful and execute raw SQL queries without explicit `WHERE tenant_id = :tenant_id`, cross-tenant data leaks are possible (FastKitty ORM hooks intercept ORM queries, but raw SQL bypasses ORM hooks).
-  - **Schema-per-tenant (`schema`)**:
-    - *How it works*: Single database instance, but each tenant resides in a dedicated PostgreSQL schema (`tenant_<id>`), preventing raw SQL cross-tenant leakage.
-    - *Downside / Limitations*: Not all database engines support schemas (e.g. MySQL and SQLite lack true schema namespaces), and schema migrations/DDL upgrades across hundreds of schemas can become complex and slow.
-  - **Database-per-tenant (`database`)**:
-    - *How it works*: Physical database isolation where each tenant has a distinct database. These can be separate physical/managed database servers OR separate logical databases within the same database server (both work).
-    - *Downside / Limitations*: High infrastructure costs, complex operational maintenance, and higher connection pool resource consumption.
+### Step 2: Multi-Tenancy Strategy (Neutral Presentation & Trade-offs)
+- Consult [`docs/database/overview-and-tradeoffs.md`](docs/database/overview-and-tradeoffs.md).
+- **Neutral Presentation (Do NOT push any option as recommended)**: Refer directly to the comparison table and trade-offs documented in [`docs/database/overview-and-tradeoffs.md`](docs/database/overview-and-tradeoffs.md) to objectively present all three database tenancy strategies (`row`, `schema`, `database`) with their isolation guarantees and concrete downsides:
+  - `row`: Scoped by `tenant_id` column; highlight the risk of raw SQL query bypass if executed without explicit tenant filters.
+  - `schema`: PostgreSQL schema namespaces; highlight that not all engines support schemas (e.g. MySQL, SQLite) and migration/DDL complexity across schemas.
+  - `database`: Distinct physical or logical databases; highlight higher infrastructure costs, operational maintenance, and connection pool consumption.
 - Ask the developer to confirm their choice.
 - **PRESENT `.env` CONFIGURATION**: Once chosen, present the exact `.env` configuration snippet showing how their choice has been configured:
   ```bash
