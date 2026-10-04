@@ -84,6 +84,8 @@ This isn't another framework with its own way of doing things *(IYKYK).* Instead
 
 - **Services own business logic**: HTTP routes are thin. They resolve dependencies, call a service method, and return a response. Business logic lives in services/ where it can be tested without an HTTP client and reused across interfaces.
 
+- **Config-driven tenant variability (Zero hardcoded tenant checks)**: Business logic must never contain hardcoded branching on specific `tenant_id`s (e.g., `if tenant_id == "tenant_1": ...`). All behavioral divergence between tenants is modeled declaratively through feature flags, quotas, and capability settings in `tenants_config.json`, injected via `feature_config`, and consumed generically in the service class.
+
 
 ## **Next Steps**
 
