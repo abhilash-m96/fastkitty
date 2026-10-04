@@ -25,13 +25,7 @@ FastKitty ships with a comprehensive Knowledge Base in `docs/`. **Never guess, a
 
 1. **Step 1 (Check Pointed Crucial Doc)**: Read the specific doc mapped to the topic in the [Prominent Knowledge Base Documents](#prominent-knowledge-base-documents) table below.
 2. **Step 2 (Search Rest of `docs/`)**: If the pointed doc does not cover the nuance, search the remaining markdown files in `docs/` (tutorials, observability, database sub-strategies).
-3. **Step 3 (Reason from FastKitty Design Philosophy)**: If the scenario is an undocumented edge case, deduce the correct architecture from FastKitty's core principles:
-   - **Explicit Tenancy**: Tenancy is resolved at the request boundary and passed explicitly via dependency injection — never hidden in thread-local globals or opaque middleware.
-   - **5-Layer Separation of Concerns**: Models (`models/`), Schemas (`schemas/`), Services (`services/`), Thin Routes (`api/routes/v1/`), and Dependency Injection (`api/deps/`).
-   - **Thin Controllers**: Route handlers are orchestrators only — zero database queries, zero business logic.
-   - **Pure Services**: Service classes handle business logic and receive an `AsyncSession`. They never import or reference HTTP concepts (`Request`, `Response`, `Depends`).
-   - **Upstream Auth Agnostic**: FastKitty assumes authentication and user validation happen upstream at the API gateway. The service ingests already-validated user identity via `USER_DATA_SOURCE`.
-   - **Config-Driven Variability (Zero Hardcoded Tenant Checks)**: Business logic must never contain hardcoded branching on specific `tenant_id`s (e.g., `if tenant_id == "tenant_1": ...`). All behavioral divergence between tenants is modeled declaratively through feature flags, quotas, and capability settings in `tenants_config.json`, injected via `feature_config`, and consumed generically in the service class.
+3. **Step 3 (Reason from FastKitty Design Philosophy)**: If the scenario is an undocumented edge case, deduce the correct architecture directly from FastKitty's core principles documented in [`docs/index.md#design-philosophy`](docs/index.md#design-philosophy) and component responsibilities in [`docs/architecture/project-structure.md`](docs/architecture/project-structure.md).
 4. **Step 4 (Propose & Confirm)**: Explicitly explain your deduced recommendation to the developer, cite the design philosophy that supports it, and confirm with them before writing code.
 
 ---
@@ -42,12 +36,13 @@ Always consult these core documents for their respective topics:
 
 | Topic | Prominent Document | What It Covers |
 |---|---|---|
+| **Design Philosophy** | `docs/index.md#design-philosophy` | Core principles: explicit tenancy, upstream auth, fail-fast startup, provider agnosticism, and config-driven variability |
+| **Project Structure** | `docs/architecture/project-structure.md` | The 5 architectural layers, component responsibilities, and extension points |
 | **Adding New Routes** | `docs/guides/adding-a-new-route.md` | Thin handlers, route naming contracts (`name=`), `Depends(get_feature_config())`, router-level `require_active_tenant` |
 | **Tenancy Config** | `docs/guides/custom-config-providers.md` | Feature flags, quotas, switching from local JSON to Vault/AWS/Consul with zero code changes |
 | **Tenant Secrets** | `docs/guides/custom-secrets-providers.md` | Resolving tenant credentials, secrets manager pluggability |
 | **Tenancy Trade-offs** | `docs/database/overview-and-tradeoffs.md` | Comparison matrix: Row-level vs Schema-per-tenant vs DB-per-tenant |
 | **Upstream Auth & Identity**| `docs/architecture/auth-gateway.md` | Why auth is upstream, gateway header ingestion vs JWT parsing |
-| **Project Structure** | `docs/architecture/project-structure.md` | The 5 architectural layers and responsibilities |
 | **Reference Implementation**| `docs/tutorial/blog-posts.md` | Gold-standard reference: models, schemas, service, thin routes, and 429 quota limits |
 | **Automated Testing** | `docs/guides/testing-guide.md` | Testing routes with `apply_overrides`, mocking services, test isolation |
 
