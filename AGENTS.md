@@ -44,6 +44,7 @@ Always consult these core documents for their respective topics:
 | **Tenancy Trade-offs** | `docs/database/overview-and-tradeoffs.md` | Comparison matrix: Row-level vs Schema-per-tenant vs DB-per-tenant |
 | **Upstream Auth & Identity**| `docs/architecture/auth-gateway.md` | Why auth is upstream, gateway header ingestion vs JWT parsing |
 | **Reference Implementation**| `docs/tutorial/blog-posts.md` | Gold-standard reference: models, schemas, service, thin routes, and 429 quota limits |
+| **Database Migrations** | `docs/database/migrations.md` | Multi-tenant Alembic migrations across row, schema, and database tenancy strategies |
 | **Automated Testing** | `docs/guides/testing-guide.md` | Testing routes with `apply_overrides`, mocking services, test isolation |
 
 ---
@@ -159,7 +160,19 @@ When configuring a new service, **execute all steps sequentially, asking ONE que
   - Do **NOT** include Pydantic schemas in this step. Keep the focus entirely on database design to avoid overwhelming the developer.
   - Explicitly ask the developer:
     > *"Here are the proposed SQLAlchemy database models. Do these tables and columns look good to you, or would you like to make any adjustments before we design the Pydantic API schemas?"*
-  - **Wait for explicit developer confirmation** before proceeding to the next step.
+  - **Wait for explicit developer confirmation** before proceeding.
+- **DATABASE MIGRATION WORKFLOW INQUIRY**:
+  - Once the database models are confirmed, ask the developer how they want to handle database migrations.
+  - Provide a clickable link to [`docs/database/migrations.md`](docs/database/migrations.md) explaining how FastKitty dynamically handles multi-tenant migrations across `row`, `schema`, and `database` tenancy strategies.
+  - Present the 2 workflow choices:
+    1. **Autogenerate & Review (Recommended)**: Kitty runs `uv run alembic revision --autogenerate -m "..."`, presents the generated migration file for review/adjustments, and applies it once confirmed.
+    2. **Manual**: The developer authors the Alembic migration script manually.
+  - Ask the developer:
+    > *"Now that the database models are confirmed, how would you like to handle the database migrations? (See [`docs/database/migrations.md`](docs/database/migrations.md) for how FastKitty runs migrations across tenancy strategies).*
+    > *1. **Autogenerate & Review (Recommended)**: I'll autogenerate the Alembic migration file, present it for your review/adjustments, and apply it.*
+    > *2. **Manual**: You write the migration script yourself.*
+    > *Which approach do you prefer?"*
+  - Record their choice to follow during the scaffolding phase.
 
 ### Step 7: Request & Response Schemas (Gate Check 3 - Pydantic Data Contracts)
 - Once the database models are confirmed, draft the Pydantic API payload schemas:
@@ -191,7 +204,7 @@ When generating code, strictly follow this implementation checklist:
 4. api/deps/db.py-> Dependency injection factory for the service
 5. api/routes/   -> Thin route controller registered under api/routes/v1/
 6. main.py       -> Include router if new router module created
-7. migrations/   -> Run `uv run alembic revision --autogenerate -m "..."` & `uv run alembic upgrade head`
+7. migrations/   -> Run migration workflow based on developer preference (autogenerate or manual) & `uv run alembic upgrade head`
 8. tests/        -> Unit tests (tests/test_services.py) & route tests (tests/test_api_routes.py)
 ```
 
@@ -211,7 +224,7 @@ When generating code, strictly follow this implementation checklist:
    - Tenancy config & secrets provider `.env` wiring
    - Upstream user identity `.env` wiring
    - The tenant feature config (along with how the pure service consumes it)
-   - The SQLAlchemy database models (isolated approval)
+   - The SQLAlchemy database models (isolated approval) + database migration workflow inquiry (with doc link)
    - The Pydantic route request/response payload schemas (isolated approval)
    - The API endpoints table and route contracts
    sequentially, step-by-step, seeking explicit developer approval at each individual gate before proceeding.
