@@ -44,9 +44,10 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/abhilash-m96/fastkitty"
-Documentation = "https://abhilash-m96.github.io/fastkitty/"
+Documentation = "https://fastkitty.pages.dev/"
 Repository = "https://github.com/abhilash-m96/fastkitty"
 Issues = "https://github.com/abhilash-m96/fastkitty/issues"
+
 
 [dependency-groups]
 dev = [
