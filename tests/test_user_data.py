@@ -195,3 +195,42 @@ def test_unsupported_source_type_raises_runtime_error() -> None:
     """Raise RuntimeError at builder creation when source type is unsupported."""
     with pytest.raises(RuntimeError, match="Unsupported USER_DATA_SOURCE type"):
         _build_get_user_data(source=object())  # type: ignore[arg-type]
+
+
+def test_dynamic_signature_and_openapi_generation() -> None:
+    """FastAPI OpenAPI schema accurately reflects dynamically built header signatures."""
+    from fastapi import FastAPI, Depends
+
+    app = FastAPI()
+
+    header_dep = _build_get_user_data(source=UserDataHeaderSource())
+    jwt_dep = _build_get_user_data(source=UserDataJWTSource())
+    claims_dep = _build_get_user_data(source=UserDataSingleHeaderClaimsSource())
+
+    @app.get("/header-test")
+    def _header_endpoint(user=Depends(header_dep)):
+        return user
+
+    @app.get("/jwt-test")
+    def _jwt_endpoint(user=Depends(jwt_dep)):
+        return user
+
+    @app.get("/claims-test")
+    def _claims_endpoint(user=Depends(claims_dep)):
+        return user
+
+    schema = app.openapi()
+    hdr_params = {p["name"]: p for p in schema["paths"]["/header-test"]["get"]["parameters"]}
+    assert "X-User-ID" in hdr_params
+    assert hdr_params["X-User-ID"]["required"] is True
+    assert "X-User-Email" in hdr_params
+    assert hdr_params["X-User-Email"]["required"] is False
+    assert "X-User-Roles" in hdr_params
+    assert hdr_params["X-User-Roles"]["required"] is False
+    assert "," not in hdr_params
+
+    jwt_params = [p["name"] for p in schema["paths"]["/jwt-test"]["get"]["parameters"]]
+    assert jwt_params == ["Authorization"]
+
+    claims_params = [p["name"] for p in schema["paths"]["/claims-test"]["get"]["parameters"]]
+    assert claims_params == ["X-User-Claims"]
