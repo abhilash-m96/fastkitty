@@ -1,15 +1,20 @@
-# fastkit(ty) 😼
+# fastkit(ty) 😼  
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.142+-009688)
 ![License](https://img.shields.io/github/license/abhilash-m96/fastkitty)
 ![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social)
 
-Ever needed to disable a feature for one customer but enable it for another?
-Give one tenant unlimited API access and another a restricted workflow?
-Make your service behave differently depending on which tenant is calling?
+---
 
-That's multi-tenant SaaS — and fastkit(ty) 😼 is a FastAPI template built for it.
+## **Ever needed your FastAPI service to behave differently for different tenants?**
+- Give one tenant unlimited API access while restricting another?
+- Enable a feature for one tenant but disable it for another?
+- Make your application behave differently based on which tenant is making the request?
+
+---
+
+That's multi-tenant SaaS — and **fastkit(ty) 😼** is a FastAPI multi-tenant service toolkit and template built for it.
 
 A pragmatic foundation for building multi-tenant services with explicit tenant context, clear dependency boundaries, and a service-first architecture.
 
@@ -19,806 +24,83 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 
 ---
 
-## Why this template
+## **Why FastKit(ty)?**
 
-- **Focus on business logic** — Tenancy, config, secrets, identity, and database wiring are handled for you. Configure what you need and build what matters.
-- **Flexible by design** — Swap config or secrets providers, or plug in your own, without touching core business logic.
-- **Explicit over magic** — Tenant context flows through dependencies you can read, trace, and test. Nothing hidden.
-- **Service-first architecture** — A clean service layer that can be exposed via HTTP, CLI, or other interfaces.
-- **Built to evolve** — Start with a shared database, then move to schema-per-tenant or database-per-tenant as your needs grow.
-
----
-
-## What you get
-
-- Explicit tenancy via `X-Tenant-ID`
-- Three DB strategies for multi-tenancy (database, schema, row)
-- Clean dependency injection (tenancy, DB, identity)
-- Service layer pattern (thin HTTP routes)
-- Configurable identity provider (headers or JWT)
-- Per-tenant feature configuration
-- Extensible config and secrets providers
-- Example CRUD service and routes
-- Embedded AI Service Architect (`AGENTS.md`) and living spec (`SERVICE_SPEC.md`)
+* **Focus on business logic** — Tenancy, configuration, secrets, identity, and database wiring are handled for you. Configure what you need and focus on what matters.
+* **Flexible by design** — Swap configuration or secrets providers, or plug in your own, without touching your core business logic.
+* **Explicit over magic** — Tenant context flows through dependencies you can read, trace, and test. Nothing hidden.
+* **Service-first architecture** — A clean service layer that can be exposed through HTTP, a CLI, or other interfaces.
+* **Support multiple tenancy strategies** — Choose shared database, schema-per-tenant, or database-per-tenant with a single flag.
 
 ---
 
-## 🤖 Recommended: Build Your Service with Your AI Coding Assistant
+## **What you get**
 
-FastKitty is an **agent-native SaaS foundation**. It ships with an interactive Service Architect protocol in [`AGENTS.md`](AGENTS.md) and persistent state tracking in [`SERVICE_SPEC.md`](SERVICE_SPEC.md).
-
-The fastest way to build your production service:
-
-1. **Clone the repo**:
-   ```bash
-   git clone https://github.com/abhilash-m96/fastkitty.git my-service
-   cd my-service
-   ```
-2. **Open in your favorite AI coding assistant**:
-   Open the folder in **Cursor**, **Antigravity**, **Claude Code**, **GitHub Copilot**, or **Windsurf**.
-3. **Ask your agent**:
-   > *"I want to build a [service-name, e.g. invoicing-service]. Guide me through setup."*
-
-The embedded **FastKitty Service Architect** will greet you, walk you through key architectural choices (tenancy strategy, config/secrets, models, and endpoints) one question at a time, recommend best practices from our knowledge base, and scaffold models, services, thin routes, and 100% passing tests for you.
+* Explicit tenancy via `X-Tenant-ID`
+* Three database strategies for multi-tenancy: `database`, `schema`, and `row`
+* Clean dependency injection for tenancy, database, and identity
+* Service layer pattern with thin HTTP routes
+* Configurable identity providers: headers or JWT
+* Per-tenant feature configuration
+* Extensible configuration and secrets providers
+* Example CRUD service and HTTP routes
+* Structured distributed tracing and telemetry with Pydantic Logfire
+* Embedded AI Service Architect ([`AGENTS.md`](AGENTS.md)) and living specification ([`SERVICE_SPEC.md`](SERVICE_SPEC.md))
 
 ---
 
-## Quickstart (Manual Setup)
+## 🤖 **Build with Your AI Coding Assistant**
 
-### Option A: Local Development with Docker PostgreSQL (Recommended)
-
-**1. Start the PostgreSQL service (with multi-tenant databases pre-configured)**
-
-```bash
-docker compose up -d postgres
-```
-This starts PostgreSQL 16 on `localhost:5432` and automatically runs [`docker/init-db.sh`](docker/init-db.sh) to create `tenant_1`, `tenant_2`, and `fastkitty_shared` databases.
-
-**2. Install dependencies & create environment file**
-
-```bash
-uv sync
-cp .env.example .env
-```
-
-**3. Run database migrations**
-
-```bash
-uv run alembic upgrade head
-```
-
-**4. Run the API with auto-reload**
-
-```bash
-uv run uvicorn main:app --reload
-```
-
----
-
-### Option B: Full Containerized Stack
-
-To run both PostgreSQL and the FastKitty API containerized:
-
-```bash
-docker compose up --build -d
-```
-PostgreSQL boots, tenant databases are created, migrations run automatically on startup, and the API is live at `http://localhost:8000` with code reload.
-
----
-
-### Interactive Debugging with Docker & `pdb`
-
-The `api` container runs with `stdin_open: true` and `tty: true`, enabling full interactive debugging with Python's built-in debugger.
-
-#### 1. Add a Breakpoint
-Drop `breakpoint()` (or `import pdb; pdb.set_trace()`) anywhere in your route, dependency, or service code:
-
-```python
-@router.get("/hello", name="greet")
-async def hello(
-    tenant_config: TenantConfig = Depends(get_tenant_config),
-):
-    breakpoint()  # execution pauses here
-    message = ...
-```
-
-#### 2. Trigger the Code
-Send an HTTP request that hits the breakpoint:
-
-```bash
-curl -H "X-Tenant-ID: tenant_1" http://127.0.0.1:8000/v1/hello
-```
-The request pauses awaiting debugger input.
-
-#### 3. Attach to the Container
-In another terminal, attach directly to the running container:
-
-```bash
-docker attach fastkitty-api
-```
-
-You are now in the live `(Pdb)` prompt:
-- `n` — step to next line
-- `s` — step into function
-- `c` — continue execution
-- `p <variable>` — evaluate and print expression
-- `l` — list surrounding code
+FastKitty is designed to be **agent-native**. It ships with an embedded Service Architect protocol in [`AGENTS.md`](AGENTS.md) and state persistence in [`SERVICE_SPEC.md`](SERVICE_SPEC.md).
 
 > [!TIP]
-> **Detaching without stopping the container**:
-> Press **`Ctrl+P`** followed by **`Ctrl+Q`** to detach your terminal while leaving the container running.
-
-#### 4. Interactive Container Shell
-To inspect files or test Python code inside the container environment:
-
-```bash
-# Open interactive bash shell
-docker compose exec -it api bash
-
-# Open Python REPL inside container environment
-docker compose exec -it api python
-```
+> **The Recommended Developer Experience:**  
+> Rather than manually writing boilerplate, clone the repo, open it in your AI coding assistant (**Cursor**, **Antigravity**, **Claude Code**, **GitHub Copilot**, or **Windsurf**), and prompt:  
+>  
+> *"I want to build a [your-service-name]. Guide me through setup."*  
+>  
+> The **FastKitty Service Architect** will greet you, walk you through the architectural decisions one question at a time (tenancy strategy, config/secrets, domain entities, and API endpoints), recommend best practices grounded in these docs, and scaffold models, services, thin routes, and 100% passing tests for you.
 
 ---
 
-**4. Try it — same endpoint, different tenants**
+## **Design Philosophy**
 
-```bash
-curl -X 'GET' \
-  'http://127.0.0.1:8000/v1/hello' \
-  -H 'accept: application/json' \
-  -H 'X-Tenant-ID: tenant_1'
-```
+FastKitty is built on one single strong opinion: that **it should not be opinionated or impose its own opinions on how your application should be built.**
+This isn't another framework with its own way of doing things *(IYKYK).* Instead, it follows a set of fundamental software design principles, and if you're comfortable with them, FastKitty should feel pretty natural.
 
-```json
-{ "message": "Hello, welcome 'Tenant One'!" }
-```
+> Bored? 👉 **[Jump straight to Quickstart](docs/quickstart/quickstart.md)**.  
+> Nerds, continue reading below.
 
-```bash
-curl -X 'GET' \
-  'http://127.0.0.1:8000/v1/hello' \
-  -H 'accept: application/json' \
-  -H 'X-Tenant-ID: tenant_2'
-```
 
-```json
-{ "message": "Hi 'Tenant Two', welcome!" }
-```
+- **Tenancy is infrastructure, not business logic**: Routes and services never know which DB strategy is active. They receive a session, query it, and return results. Whether that session points to a dedicated database, a schema-scoped connection, or a row-filtered shared pool is decided at startup and invisible above the dependency layer. This means your business logic doesn't change when you change your tenancy model.
 
-Same endpoint. Same route handler. Different tenant config.
+- **Tenant context is explicit, not ambient**: Tenant identity flows through FastAPI's dependency injection — you can see it, trace it, and test it. There are no thread-locals, no request-scoped globals, no middleware that silently injects context. If a route needs tenant context, it declares it. If it doesn't, it doesn't.
 
-**5. Here's the config driving it**
+- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant with a missing schema_name in schema mode, or a conflicting DB URL in row mode, raises immediately — not on the first request from that tenant.
 
-```json
-{
-  "tenant_1": {
-    "tenant_id": "tenant_1",
-    "display_name": "Tenant One",
-    "is_active": true,
-    "features": {
-      "greet": {
-        "message": "Hello, welcome '{tenant_name}'!"
-      }
-    }
-  },
-  "tenant_2": {
-    "tenant_id": "tenant_2",
-    "display_name": "Tenant Two",
-    "is_active": true,
-    "features": {
-      "greet": {
-        "message": "Hi '{tenant_name}', welcome!"
-      }
-    }
-  }
-}
-```
+- **Auth is a peer concern**: fastkit(ty) is intentionally auth-agnostic. Auth belongs upstream — in a gateway or dedicated auth service — not inside a multi-tenant service template. By the time a request reaches your service, auth is already done. The template reads already-validated identity from incoming requests via USER_DATA_SOURCE. It does not validate or issue tokens.
 
-**6. And the route**
+- **Config and secrets are provider-agnostic**: The template ships with file-based providers for local development and HashiCorp Vault/Consul adapters for production. Swapping providers requires no changes to business logic — only config.
 
-```python
-@router.get("/hello", name="greet")
-async def hello(
-    tenant_config: TenantConfig = Depends(get_tenant_config),
-    feature_config: FeatureConfig | None = Depends(get_feature_config("greet")),
-):
-    message = feature_config.get("message") if feature_config else None
-    tenant_name = tenant_config.display_name
-    if not message:
-        message = f"Hello {tenant_name}!"
-    try:
-        message = message.format(tenant_name=tenant_config.display_name)
-    except (KeyError, ValueError):
-        pass
+- **Services own business logic**: HTTP routes are thin. They resolve dependencies, call a service method, and return a response. Business logic lives in services/ where it can be tested without an HTTP client and reused across interfaces.
 
-    return {"message": message}
-```
-
-The route didn't change. The tenant config did. That's the fastkit(ty) model.
-
-Open docs (dev only): `http://localhost:8000/docs`
+- **Config-driven tenant variability (Zero hardcoded tenant checks)**: Business logic must never contain hardcoded branching on specific `tenant_id`s (e.g., `if tenant_id == "tenant_1": ...`). All behavioral divergence between tenants is modeled declaratively through feature flags, quotas, and capability settings in `tenants_config.json`, injected via `feature_config`, and consumed generically in the service class.
 
 ---
 
-## Architecture & Design Philosophy
+## 🗺️ **Roadmap: From Template to Interactive Generator**
 
-fastkit(ty) is built around a small set of explicit opinions. They are worth understanding before you extend the template.
+FastKitty is actively evolving from a starter template into an interactive, **cookiecutter-like project generator & CLI toolkit** (`fastkitty init` / Cookiecutter):
 
-**Tenancy is infrastructure, not business logic**
+* **Interactive Setup Wizard**: Capture business domain requirements, tenancy strategy (`row`, `schema`, `database`), upstream auth mode, and tier quotas interactively.
+* **Zero-Bloat Scaffolding**: Generate clean, domain-specific models, pure services, thin routes, and 100% passing tests tailored directly to your service — eliminating the need to clean up sample blog-post boilerplate.
+* **Production Cloud Adapters & Lifecycle Hooks**: Native adapters for Vault, AWS Secrets Manager, DynamoDB, plus automated runtime tenant schema and database provisioning.
 
-Routes and services never know which DB strategy is active. They receive a session, query it, and return results. Whether that session points to a dedicated database, a schema-scoped connection, or a row-filtered shared pool is decided at startup and invisible above the dependency layer. This means your business logic doesn't change when you change your tenancy model.
-
-**Tenant context is explicit, not ambient**
-
-Tenant identity flows through FastAPI's dependency injection — you can see it, trace it, and test it. There are no thread-locals, no request-scoped globals, no middleware that silently injects context. If a route needs tenant context, it declares it. If it doesn't, it doesn't.
-
-**Fail fast at startup**
-
-Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant with a missing `schema_name` in schema mode, or a conflicting DB URL in row mode, raises immediately — not on the first request from that tenant.
-
-**Auth is a peer concern, not a template concern**
-
-fastkit(ty) is intentionally auth-agnostic. Auth belongs upstream — in a gateway or dedicated auth service — not inside a multi-tenant service template. By the time a request reaches your service, auth is already done. The template reads already-validated identity from incoming requests via `USER_DATA_SOURCE`. It does not validate or issue tokens.
-
-**Config and secrets are provider-agnostic**
-
-The template ships with file-based providers for local development and HashiCorp Vault/Consul adapters for production. Swapping providers requires no changes to business logic — only config.
-
-**Services own business logic**
-
-HTTP routes are thin. They resolve dependencies, call a service method, and return a response. Business logic lives in `services/` where it can be tested without an HTTP client and reused across interfaces.
+👉 Read the full vision and milestones in the **[Product Roadmap](docs/roadmap.md)**.
 
 ---
 
-## Project Layout
+## **Next Steps**
 
-```
-api/routes      HTTP routes
-api/deps        dependency wiring (tenancy, db, user data)
-services        business logic
-models          SQLAlchemy models
-schemas         Pydantic schemas
-config          config providers and settings
-db              database session and engine setup
-```
-
----
-
-## Configuration
-
-The full list of settings is in `.env.example`. Key settings:
-
-| Setting | Values | Description |
-|---|---|---|
-| `TENANCY_CONFIG_CONNECTION` | JSON | Config provider connection |
-| `TENANCY_SECRETS_CONNECTION` | JSON | Secrets provider connection |
-| `TENANCY_DB_STRATEGY` | `database` \| `schema` \| `row` | DB isolation strategy |
-| `TENANCY_DATABASE_MAX_ENGINES` | int | Max cached engines for `database` strategy |
-| `USER_DATA_SOURCE` | `header` \| `jwt` \| `claims` | Identity provider |
-
----
-
-## Tenancy Model
-
-Tenancy is resolved from the `X-Tenant-ID` header on every request.
-
-- `tenants_config.json` defines tenants, their active status, and per-tenant feature config
-- `tenants_secrets.json` provides DB connection details per tenant
-- The app validates the selected DB strategy at startup and fails fast on incompatible tenant payloads
-
-Tenant lookup and active checks are split into separate dependencies so you can apply them at different granularities:
-
-```python
-# enforce at router level — all routes in this router require an active tenant
-router = APIRouter(dependencies=[Depends(require_active_tenant)])
-
-# or at individual route level
-@router.get("/hello", dependencies=[Depends(require_active_tenant)])
-async def hello(): ...
-```
-
-Missing `X-Tenant-ID` returns 400. Unknown tenant returns 404. Inactive tenant returns 403.
-
----
-
-## Database Strategy
-
-### Choosing a Strategy
-
-The right strategy depends on your isolation requirements and scale. This is a startup decision — there is no per-request strategy switching.
-
-| Strategy | Isolation | Cost | Best for |
-|---|---|---|---|
-| `database` | Strongest — separate DB per tenant | Highest — one connection pool per tenant | Enterprise SaaS, strict data residency requirements |
-| `schema` | Strong — PostgreSQL schema boundary | Moderate — one shared pool | Mid-stage products, regulatory requirements |
-| `row` | Weakest — column filter only | Lowest — one pool, one schema | B2C products, large tenant counts, cost-sensitive |
-
-Start with `row` if you are early stage. The template is designed so you can migrate to `schema` or `database` by changing one env var and updating your secrets — your routes and services change nothing.
-
-### RDBMS Compatibility & Multi-Database Engine Support
-
-FastKitty's database foundation is built on **SQLAlchemy 2.0 async**, providing broad multi-database support with specific architectural tradeoffs:
-
-- **`database` strategy**: Works across **any** SQLAlchemy-supported RDBMS (PostgreSQL, MySQL, MariaDB, SQLite, MSSQL). Each tenant connects to their own independent database instance, cluster, or file.
-- **`row` strategy**: Works across **any** relational database. Isolation is enforced at the ORM layer via automatic `WHERE tenant_id = :id` criteria, requiring only standard SQL column filtering.
-- **`schema` strategy**: Specifically designed and optimized for **PostgreSQL**. PostgreSQL is unique in providing native sub-schema namespaces within a single database and dynamic session-level switching via `SET search_path TO <schema>, public`.
-
-| Database | Supported FastKitty Strategies | How Sub-Schemas Work & Compatibility Notes |
-|---|---|---|
-| **PostgreSQL** | **All (`database`, `schema`, `row`)** | **Primary Target**. Full native support for all 3 strategies. Includes dynamic `search_path` schema switching, async pooling via `asyncpg`, and automated multi-tenant Alembic migrations. |
-| **MySQL / MariaDB** | **`database`, `row`** | In MySQL, **`DATABASE` and `SCHEMA` are exact synonyms** (`CREATE SCHEMA` is identical to `CREATE DATABASE`). There are no sub-schemas inside a MySQL database. Use either `database` strategy (separate MySQL databases) or `row` strategy. |
-| **SQLite** | **`database`, `row`** | Single-file database. Supported for `database` (separate `.db` files per tenant) and `row` (single `.db` file with `tenant_id` column). No native sub-schemas. |
-| **Microsoft SQL Server** | **`database`, `row`** | Full support for `database` and `row` strategies. While MSSQL supports schema namespaces (`tenant_1.table`), it lacks dynamic per-connection `search_path` switching without user credential changes. |
-| **Oracle** | **`database`, `row`** | Full support for `database` and `row` strategies. In Oracle, a schema is synonymous with a database `USER`. |
-
-> [!NOTE]
-> **Single Database Server (Dev) vs. Multi-Server / Multi-Cluster (Production)**
-> In local development and Docker Compose, all logical databases (`tenant_1`, `tenant_2`, `fastkitty_shared`) and tenant schemas run inside a single PostgreSQL server container (`localhost:5432`) for convenience and zero-cost local setup.
->
-> However, because every tenant's `DatabaseConfig` independently defines `host`, `port`, `username`, `password`, and `database_name`:
-> - **In `database` strategy**: Tenants can be distributed across completely separate physical or cloud RDS clusters in different AWS/GCP regions (e.g. Tenant 1 on `eu-west-1.rds.amazonaws.com` and Tenant 2 on `us-east-1.rds.amazonaws.com`).
-> - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
-> - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
-
-> [!TIP]
-> **Why `tenants_config.json` Never Changes Between Environments**
-> FastKitty enforces a strict separation between **identity/features** and **infrastructure secrets**:
-> - `tenants_config.json` stores tenant IDs, display names, activation status, and business feature flags. It contains no network hosts or credentials and remains completely identical whether running locally, in Docker, or across cloud environments.
-> - `tenants_secrets.json` stores database connection strings and credentials (`host`, `port`, `username`, `password`, `database_name`), which can be swapped for environment-specific secrets (e.g. `tenants_secrets.docker.json` or HashiCorp Vault / GCP Secret Manager in production).
-
-### Configuring a Strategy
-
-Set the strategy once in your env:
-
-```env
-TENANCY_DB_STRATEGY=schema
-```
-
-The DB layer is async-only. All connections use `AsyncSession` and require an async-compatible driver:
-
-```
-postgresql+asyncpg://...
-```
-
-**Database strategy — secret shape**
-
-Each tenant provides its own DB URL:
-
-```json
-{
-  "tenant_1": {
-    "tenant_id": "tenant_1",
-    "database_config": {
-      "database_uri": "postgresql+asyncpg://tenant1_user:password@db.tenant1.com:5432/tenant1_db",
-      "host": "db.tenant1.com",
-      "port": 5432,
-      "username": "tenant1_user",
-      "password": "password",
-      "database_name": "tenant1_db"
-    }
-  }
-}
-```
-
-**Schema strategy — secret shape**
-
-All tenants share one DB URL. Each tenant provides a `schema_name`:
-
-```json
-{
-  "tenant_1": {
-    "tenant_id": "tenant_1",
-    "database_config": {
-      "database_uri": "postgresql+asyncpg://shared_user:password@db.shared.com:5432/app_db",
-      "host": "db.shared.com",
-      "port": 5432,
-      "username": "shared_user",
-      "password": "password",
-      "database_name": "app_db",
-      "schema_name": "tenant_one"
-    }
-  }
-}
-```
-
-**Row strategy — secret shape**
-
-All tenants share one DB URL. No `schema_name` needed:
-
-```json
-{
-  "tenant_1": {
-    "tenant_id": "tenant_1",
-    "database_config": {
-      "database_uri": "postgresql+asyncpg://shared_user:password@db.shared.com:5432/app_db",
-      "host": "db.shared.com",
-      "port": 5432,
-      "username": "shared_user",
-      "password": "password",
-      "database_name": "app_db"
-    }
-  }
-}
-```
-
-### How it works under the hood
-
-**Database strategy** caches engines per DB URL in a bounded LRU registry (`TENANCY_DATABASE_MAX_ENGINES`, default 50). When the limit is exceeded, the least recently used engine is evicted and disposed after all in-flight sessions on that engine finish — it will not force-close active connections.
-
-**Schema strategy** sets `search_path` to `<schema>, public` at the start of every session and resets it before the connection is returned to the pool. The reset runs unconditionally even if the session raises — a broken connection during reset still closes the session cleanly.
-
-**Row strategy** hooks SQLAlchemy's ORM event system per session. Reads get an automatic `WHERE tenant_id = :current_tenant` filter injected. Writes stamp new objects with `tenant_id` and guard against cross-tenant mutations before flush.
-
-### Strategy Guarantees
-
-- Missing `X-Tenant-ID` fails before a DB session is ever opened
-- Inactive tenants are rejected before a DB session is ever opened
-- Schema names are validated as safe SQL identifiers before use in `SET search_path`
-- Reserved PostgreSQL schema names (`public`, `pg_catalog`, `information_schema`) are rejected even if they pass the identifier check
-- Schema strategy resets `search_path` before the connection is returned to the pool
-- Schema strategy closes the session cleanly even if `RESET search_path` itself raises
-- Row strategy raises immediately if DB access is attempted without tenant context
-- Row strategy raises before flush if a cross-tenant write is detected
-- Database strategy never shares sessions across tenant DB URLs
-- Evicted engines wait for in-flight sessions to finish before disposal, with a timeout to prevent indefinite blocking on stuck sessions
-
-### Known Limitations
-
-**Row strategy — ORM bypass**
-
-The automatic tenant filter only applies to ORM-level queries. Raw SQL and Core-style bulk statements bypass it entirely:
-
-```python
-# these bypass the tenant filter — do not use on tenant-scoped tables
-await session.execute(text("SELECT * FROM posts"))
-await session.execute(update(Post).values(title="..."))
-```
-
-For raw SQL against tenant-scoped tables, always include an explicit `WHERE tenant_id = :tid` clause. This is a documented limitation, not a planned fix — the ORM path covers the common case and the escape hatch is documented so developers know where the boundary is.
-
-**`updated_at` on bulk updates and raw SQL**
-
-The `onupdate` hook on `TimestampedModel.updated_at` fires for ORM-tracked updates only. Core-level bulk updates and raw SQL bypass SQLAlchemy's ORM event cycle and will not automatically update `updated_at` or enforce `tenant_id` scoping. If you execute raw SQL or bulk statements, you must explicitly manage timestamps and tenant isolation in your SQL statements.
-
-**Pool config conflicts in database strategy**
-
-Two tenants pointing to the same DB URL share one engine. If their secrets specify different pool settings (e.g. different `pool_size`), the second tenant's first request will raise a `ValueError`. Ensure all tenants sharing a DB URL agree on pool configuration.
-
----
-
-## Database Migrations
-
-FastKitty includes multi-tenancy-aware database migrations using [Alembic](https://alembic.sqlalchemy.org/) and async SQLAlchemy (`asyncpg`). Migrations dynamically adapt to the active `TENANCY_DB_STRATEGY`:
-- **`row` strategy**: Migrates shared tables in the `public` schema.
-- **`schema` strategy**: Discovers active tenants, creates schemas if needed, sets `search_path`, and runs migrations with isolated version tracking per tenant schema.
-- **`database` strategy**: Resolves tenant database URIs and runs migrations across isolated tenant databases independently.
-
-Quick CLI usage:
-```bash
-# Run migrations across all active tenants
-uv run alembic upgrade head
-
-# Run migrations for a specific tenant
-uv run alembic -x tenant=tenant_1 upgrade head
-
-# Generate raw SQL preview (offline mode)
-uv run alembic upgrade head --sql
-```
-
-For the comprehensive guide, strategy behaviors, and model registration instructions, see the [Database Migrations Guide](docs/migrations.md).
-
----
-
-## Model Mixins
-
-fastkit(ty) ships two independent SQLAlchemy mixins in `models/base.py`. They are intentionally separate so models opt into each explicitly.
-
-**`TenantScopedModel`** adds a `tenant_id` column. Required for row strategy — the ORM hooks key off this mixin. Also useful in database and schema strategies for portability (switching strategies without changing models).
-
-**`TimestampedModel`** adds `created_at` and `updated_at` columns with server-side UTC defaults.
-
-Models that need both inherit from both explicitly:
-
-```python
-from models.base import TenantScopedModel, TimestampedModel
-
-# tenant-scoped with timestamps — the common case
-class BlogPost(TenantScopedModel, TimestampedModel):
-    __tablename__ = "blog_posts"
-    # your fields here
-
-# timestamps only — for non-tenant tables like audit logs
-class AuditLog(TimestampedModel):
-    __tablename__ = "audit_logs"
-    # your fields here
-```
-
-The explicit multiple inheritance is intentional. A model that is tenant-scoped doesn't automatically need timestamps and vice versa. Composing them explicitly makes the intent clear.
-
----
-
-## Config Providers
-
-Config providers supply per-tenant configuration: tenant ID, display name, active status, and feature flags.
-
-### Currently Supported
-
-**`file`** (default) — reads from a local JSON file. Zero dependencies, ideal for local development and testing.
-
-```json
-TENANCY_CONFIG_CONNECTION={"type": "file", "path": "tenants_config.json"}
-```
-
-**`hc_consul`** — reads from HashiCorp Consul. Tenant configs are stored as KV entries under a configurable prefix.
-
-```json
-TENANCY_CONFIG_CONNECTION={"type": "hc_consul", "host": "consul.internal", "port": 8500, "consul_prefix": "tenants/config"}
-```
-
-### How to Add a New Config Provider
-
-1. Implement a new `TenancyConfigProvider` in `config/tenancy_providers.py`. The interface requires `get_tenant(tenant_id)` and optionally `get_tenants()` for startup validation.
-
-2. Add a connection model in `config/settings.py`:
-
-```python
-class TenancyConfigFooConnection(BaseModel):
-    type: Literal["foo"]
-    # your connection fields
-```
-
-Include it in the `TenancyConfigConnection` union.
-
-3. Register it in `config/tenancy_providers_factory.py`:
-
-```python
-if connection.type == "foo":
-    return FooConfigProvider(connection)
-```
-
-4. Set `TENANCY_CONFIG_CONNECTION` in `.env` with `"type": "foo"` and your connection fields.
-
-> If your provider does not support listing all tenants (e.g. it only supports point lookups), implement `get_tenants()` to raise `NotImplementedError`. Startup validation will be skipped with a warning log — it cannot iterate what it cannot list.
-
----
-
-## Secrets Providers
-
-Secrets providers supply per-tenant DB connection details — credentials, host, port, strategy-specific fields like `schema_name`.
-
-### Currently Supported
-
-**`file`** (default) — reads from a local JSON file. Zero dependencies, ideal for local development and testing.
-
-```json
-TENANCY_SECRETS_CONNECTION={"type": "file", "path": "tenants_secrets.json"}
-```
-
-**`hc_vault`** — reads from HashiCorp Vault KV. Tenant secrets are stored under a configurable path.
-
-```json
-TENANCY_SECRETS_CONNECTION={"type": "hc_vault", "url": "https://vault.internal", "token": "...", "vault_kv_path": "secret/tenants"}
-```
-
-### How to Add a New Secrets Provider
-
-1. Implement a new `TenancySecretsProvider` in `config/tenancy_providers.py`. The interface requires `get_secrets(tenant_id)` returning a `TenantSecrets` instance.
-
-2. Add a connection model in `config/settings.py`:
-
-```python
-class TenancySecretsBarConnection(BaseModel):
-    type: Literal["bar"]
-    # your connection fields
-```
-
-Include it in the `TenancySecretsConnection` union.
-
-3. Register it in `config/tenancy_providers_factory.py`:
-
-```python
-if connection.type == "bar":
-    return BarSecretsProvider(connection)
-```
-
-4. Set `TENANCY_SECRETS_CONNECTION` in `.env` with `"type": "bar"` and your connection fields.
-
----
-
-## Identity & User Data
-
-User identity is resolved independently of auth. Set `USER_DATA_SOURCE` to one of:
-
-- `header` — reads `X-User-ID` and optional `X-User-Email`, `X-User-Roles`
-- `jwt` — decodes `Authorization: Bearer <token>` (does not validate — validation is the gateway's job)
-- `claims` — reads `X-User-Claims` as a JSON header
-
----
-
-## Auth
-
-fastkit(ty) is intentionally auth-agnostic. Auth is a peer concern — it belongs upstream, not inside a multi-tenant service template.
-
-The recommended pattern:
-
-```
-Client → API Gateway / BFF → Auth Service (Keycloak, Auth0, ...)
-                ↓ validated token
-         fastkit(ty) service
-```
-
-A gateway validates tokens before requests reach your FastAPI service. Offline JWT validation for the common case, a blocking server-side check only when you genuinely need it (forced logout, token revocation, high-stakes ops). By the time a request hits your service, auth is already done.
-
-**Why keep auth separate?**
-
-- Multi-tenant auth is its own problem — tenant resolution, per-tenant token claims, and permission scoping belong in the auth layer, not scattered across service dependencies
-- Vendor abstraction — your service never imports an Auth0 SDK or Keycloak client; it reads claims from a validated token
-- Evolve independently — add MFA, rotate token strategies, or swap providers without touching business logic
-- No distributed bottleneck — auth on issuance, not on every request; your service stays stateless and fast
-
-Keep tokens lean. Fat tokens with many claims go stale fast and push you toward online validation on every request. Pass just enough to route and scope; let services hydrate what they need from their own context.
-
----
-
-## Feature Configuration
-
-Each tenant can define feature-specific config under `features`. Feature values are arbitrary JSON — the shape is yours to define per feature key.
-
-```json
-{
-  "tenant_1": {
-    "tenant_id": "tenant_1",
-    "display_name": "Tenant One",
-    "is_active": true,
-    "features": {
-      "greet": { "message": "Hello, welcome '{tenant_name}'!" }
-    }
-  }
-}
-```
-
-Resolving feature config in a route:
-
-```python
-@router.get("/hello", name="greet")
-async def hello(
-    tenant_config: TenantConfig = Depends(get_tenant_config),
-    feature_config: FeatureConfig | None = Depends(get_feature_config("greet")),
-):
-    message = feature_config.get("message") if feature_config else None
-    ...
-```
-
-`get_feature_config("greet")` returns `None` if the tenant has no config for that feature key — always handle the missing case with a sensible default.
-
-Treat feature keys as a contract. Document the supported keys and their expected shape in code so the config and the route stay in sync.
-
----
-
-## Observability & Structured Logging with Pydantic Logfire
-
-FastKitty comes with built-in, production-grade telemetry and structured distributed tracing powered by [Pydantic Logfire](https://pydantic.dev/logfire) and OpenTelemetry.
-
-### What is Instrumentated Automatically
-
-- **FastAPI Endpoints**: Request paths, HTTP status codes, headers, response timings, and unhandled exceptions.
-- **SQLAlchemy Queries**: Every SQL query executed across all tenant strategies (`database`, `schema`, `row`) is recorded with parameters and latency spans.
-- **Pydantic Validation**: Model validation durations and schema validation errors.
-- **Multi-Tenant Context Propagation**: Every active trace span is automatically tagged with:
-  - `tenant.id` / `tenant_id`: The tenant handling the request (extracted from `X-Tenant-ID`).
-  - `tenant.name`: Tenant display name (from tenant configuration).
-  - `user.id` / `user.email` / `user.roles`: User identity attributes (from headers, JWT, or claims).
-
----
-
-### Local Console Mode (Default — Zero Network, Free, No Account)
-
-By default, Logfire sends **zero data over the network**:
-
-```env
-LOGFIRE_SEND_TO_LOGFIRE=false
-```
-
-When you run FastKitty locally or in Docker, Logfire prints tree-structured, colored spans and query execution times directly to your terminal:
-
-```text
-17:01:57.495 GET /v1/hello [200 OK] (14.2ms)
-  ├── extract_tenant_config (2.1ms) [tenant.id=tenant_1]
-  └── select blog_posts where tenant_id = 'tenant_1' (3.8ms)
-```
-
----
-
-### Cloud Web Dashboard Mode (Optional — Free Tier Available)
-
-If you or your team prefer a visual web dashboard with flame graphs, SQL query inspection, and live tenant filtering:
-
-1. **Sign up for free** at [logfire.pydantic.dev](https://logfire.pydantic.dev) (The Personal plan includes **10 million records/month free** with 30-day retention).
-2. Authenticate or retrieve your project write token:
-   ```bash
-   uv run logfire auth
-   ```
-   Or copy the project write token directly from the web dashboard.
-3. Update your `.env` file:
-   ```env
-   LOGFIRE_SEND_TO_LOGFIRE=true
-   LOGFIRE_TOKEN=your_logfire_token_here
-   LOGFIRE_ENVIRONMENT=dev  # dev | staging | prod
-   ```
-4. Start your service:
-   ```bash
-   uv run uvicorn main:app --reload
-   ```
-   Open [logfire.pydantic.dev](https://logfire.pydantic.dev) to inspect incoming requests. You can filter traces instantly by tenant using SQL queries like:
-   ```sql
-   SELECT * FROM records WHERE attributes['tenant.id'] = 'tenant_1'
-   ```
-
----
-
-### Telemetry Configuration Reference
-
-All settings can be configured via environment variables or `.env`:
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `LOGFIRE_ENABLED` | `bool` | `true` | Master toggle to enable or disable Logfire telemetry. |
-| `LOGFIRE_SEND_TO_LOGFIRE` | `bool` | `false` | When `false`, logs are emitted only to the terminal console (zero cloud traffic). Set to `true` to export to Logfire cloud. |
-| `LOGFIRE_TOKEN` | `str \| null` | `null` | Your Logfire project write token (required if `LOGFIRE_SEND_TO_LOGFIRE=true`). |
-| `LOGFIRE_ENVIRONMENT` | `str \| null` | `null` | Deployment environment tag (`dev`, `staging`, `prod`). Defaults to `ENV` setting. |
-| `LOGFIRE_SERVICE_NAME` | `str \| null` | `null` | Service identifier for traces. Defaults to `APP_NAME` (`fastkitty`). |
-| `LOGFIRE_CONSOLE` | `bool` | `true` | Enables colored, formatted output in the terminal console. |
-
----
-
-## Tests
-
-The project includes automated tests for the main behavior seams in the template:
-
-- tenancy schema normalization
-- user data parsing from headers, JWT payloads, and claims headers
-- database dependency wiring
-- service-layer behavior
-- provider factories and provider adapters
-- route-level behavior for `/v1/hello` and `/v1/blog-posts`
-- database strategy isolation, eviction, tenant scoping, and dependency wiring
-- Logfire telemetry setup, console fallbacks, and multi-tenant span enrichment
-
-You do not need to start the FastAPI server before running tests. The suite uses FastAPI's in-process test client and shared pytest fixtures from `tests/conftest.py`.
-
-```bash
-# run the full suite
-uv run pytest tests
-
-# run a single file
-uv run pytest tests/test_telemetry.py
-
-# run by name
-uv run pytest tests -k logfire
-
-# verbose output
-uv run pytest tests -v
-```
-
----
-
-## Extending the Template
-
-To add a new resource:
-
-1. Add a model in `models/` — inherit from `TenantScopedModel`, `TimestampedModel`, or both
-2. Add request/response schemas in `schemas/`
-3. Add a service in `services/`
-4. Add routes in `api/routes/v1/`
-5. Wire dependencies from `api/deps/`
-
-Keep routes thin. If a route handler is doing more than resolving dependencies, calling a service method, and returning a response, the logic belongs in the service.
-
----
-
-## Roadmap
-
-- [x] Alembic migrations and provisioning workflows — including automatic `updated_at` trigger wiring per `TimestampedModel` table
-- [x] Dockerfile / docker-compose with multi-database PostgreSQL support
-- [x] Structured logging & Observability with Pydantic Logfire & OpenTelemetry
-- Extract the DB strategy layer as a standalone SQLAlchemy extension (`sqlalchemy-tenancy` or similar) — the layer is already designed for this: configure a strategy and DB secrets, get sessions, everything else is invisible
+Ready to get started?  
+Proceed to **[Quickstart: Setup & Run](docs/quickstart/quickstart.md)** to run the project locally or in Docker in under 60 seconds!
