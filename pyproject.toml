@@ -1,9 +1,32 @@
 [project]
 name = "fastkitty"
 version = "0.1.0"
-description = "Add your description here"
+description = "A production-ready, multi-tenant SaaS foundation for FastAPI with explicit tenancy, dynamic dependency injection, and clean architecture."
 readme = "README.md"
+authors = [
+    { name = "Abhilash M" }
+]
+license = { text = "MIT" }
 requires-python = ">=3.12"
+keywords = [
+    "fastapi",
+    "multi-tenant",
+    "multitenancy",
+    "saas",
+    "postgresql",
+    "sqlalchemy",
+    "alembic",
+    "logfire",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "fastapi>=0.142.2",
     "pydantic>=2.13.5",
@@ -18,6 +41,12 @@ dependencies = [
     "alembic>=1.20.0",
     "logfire[fastapi,sqlalchemy]>=5.1.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/abhilash-m96/fastkitty"
+Documentation = "https://abhilash-m96.github.io/fastkitty/"
+Repository = "https://github.com/abhilash-m96/fastkitty"
+Issues = "https://github.com/abhilash-m96/fastkitty/issues"
 
 [dependency-groups]
 dev = [
@@ -43,4 +72,13 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W"]
 ignore = ["E501"]
+
+[tool.setuptools.packages.find]
+include = ["api*", "config*", "db*", "models*", "schemas*", "services*"]
+exclude = ["tests*", "docker*", "docs*", "alembic*", "site*"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 

@@ -86,8 +86,22 @@ This isn't another framework with its own way of doing things *(IYKYK).* Instead
 
 - **Config-driven tenant variability (Zero hardcoded tenant checks)**: Business logic must never contain hardcoded branching on specific `tenant_id`s (e.g., `if tenant_id == "tenant_1": ...`). All behavioral divergence between tenants is modeled declaratively through feature flags, quotas, and capability settings in `tenants_config.json`, injected via `feature_config`, and consumed generically in the service class.
 
+---
+
+## 🗺️ **Roadmap: From Template to Interactive Generator**
+
+FastKitty is actively evolving from a starter template into an interactive, **cookiecutter-like project generator & CLI toolkit** (`fastkitty init` / Cookiecutter):
+
+* **Interactive Setup Wizard**: Capture business domain requirements, tenancy strategy (`row`, `schema`, `database`), upstream auth mode, and tier quotas interactively.
+* **Zero-Bloat Scaffolding**: Generate clean, domain-specific models, pure services, thin routes, and 100% passing tests tailored directly to your service — eliminating the need to clean up sample blog-post boilerplate.
+* **Production Cloud Adapters & Lifecycle Hooks**: Native adapters for Vault, AWS Secrets Manager, DynamoDB, plus automated runtime tenant schema and database provisioning.
+
+👉 Read the full vision and milestones in the **[Product Roadmap](roadmap.md)**.
+
+---
 
 ## **Next Steps**
 
 Ready to get started?  
 Proceed to **[Quickstart: Setup & Run](quickstart/quickstart.md)** to run the project locally or in Docker in under 60 seconds!
+

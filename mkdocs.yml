@@ -52,6 +52,7 @@ markdown_extensions:
 
 nav:
   - Overview: index.md
+  - Product Roadmap: roadmap.md
 
   - Quickstart:
       - 1. Setup & Run (Local / Docker): quickstart/quickstart.md
