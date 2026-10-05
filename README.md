@@ -95,8 +95,10 @@ FastKitty is actively evolving from a starter template into an interactive, **co
 * **Interactive Setup Wizard**: Capture business domain requirements, tenancy strategy (`row`, `schema`, `database`), upstream auth mode, and tier quotas interactively.
 * **Zero-Bloat Scaffolding**: Generate clean, domain-specific models, pure services, thin routes, and 100% passing tests tailored directly to your service — eliminating the need to clean up sample blog-post boilerplate.
 * **Production Cloud Adapters & Lifecycle Hooks**: Native adapters for Vault, AWS Secrets Manager, DynamoDB, plus automated runtime tenant schema and database provisioning.
+* **Standalone SQLAlchemy Multi-Tenancy Package**: Extract the database engine into an independent PyPI package (`sqlalchemy-tenancy`) usable with vanilla SQLAlchemy, Flask, Django, or Celery.
 
 👉 Read the full vision and milestones in the **[Product Roadmap](docs/roadmap.md)**.
+
 
 ---
 

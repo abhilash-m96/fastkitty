@@ -53,7 +53,16 @@ Instead of cloning a pre-baked blog app, developers will be prompted with an int
 
 ---
 
-### Phase 4: Embedded Agentic Co-Pilot (Kitty 😼)
+### Phase 4: Standalone SQLAlchemy Multi-Tenancy Package (`sqlalchemy-tenancy`)
+- [ ] **Decouple Database Engine**:
+  - Extract the database strategy layer (`db/tenancy_strategy.py`, `db/session.py`, `TenantScopedModel`) into an independent, standalone Python package published to PyPI (e.g. `sqlalchemy-tenancy` or `fastkitty-tenancy`).
+  - Framework-agnostic: usable with vanilla SQLAlchemy, Flask, Django, Celery background workers, or standalone scripts without requiring FastAPI.
+- [ ] **Modular Strategy Plugins**:
+  - Zero-overhead imports where applications only load the driver/strategy dependencies they actively configure.
+
+---
+
+### Phase 5: Embedded Agentic Co-Pilot (Kitty 😼)
 - [ ] **AI-Assisted Continuous Evolution**:
   - Deepen the embedded Service Architect protocol (`AGENTS.md`) to guide developers through adding new routes, mutating schemas, and generating zero-downtime migrations.
   - Automated test generation for every newly added tenant capability flag or quota limit.
