@@ -37,7 +37,7 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 ## **What you get**
 
 * Explicit tenancy via `X-Tenant-ID`
-* Three database strategies for multi-tenancy: `database`, `schema`, and `row`
+* Complete multi-tenant database setup with three isolation strategies to choose from: `database`, `schema`, and `row`
 * Clean dependency injection for tenancy, database, and identity
 * Service layer pattern with thin HTTP routes
 * Configurable identity providers: headers or JWT
