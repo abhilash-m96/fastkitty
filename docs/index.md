@@ -1,9 +1,9 @@
 # fastkit(ty) 😼  
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
-![License](https://img.shields.io/github/license/abhilash-m96/fastkitty)
-![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.142+-009688)
+![License](https://img.shields.io/github/license/abhilash-m96/fastkitty?v=2)
+![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social&v=2)
 
 ---
 
@@ -26,7 +26,7 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 
 ## **Why FastKit(ty)?**
 
-* **Focus on business logic** — Tenancy, configuration, secrets, identity, and database wiring are handled for you. Configure what you need and focus on what matters.
+* **You focus on business logic** — Tenancy, configuration, secrets, identity, and database wiring are handled for you. Configure what you need and focus on what matters.
 * **Flexible by design** — Swap configuration or secrets providers, or plug in your own, without touching your core business logic.
 * **Explicit over magic** — Tenant context flows through dependencies you can read, trace, and test. Nothing hidden.
 * **Service-first architecture** — A clean service layer that can be exposed through HTTP, a CLI, or other interfaces.
@@ -37,7 +37,7 @@ Tenancy, feature flags, database strategy, config, secrets, and identity are all
 ## **What you get**
 
 * Explicit tenancy via `X-Tenant-ID`
-* Three database strategies for multi-tenancy: `database`, `schema`, and `row`
+* Complete multi-tenant database setup with three isolation strategies to choose from: `database`, `schema`, and `row`
 * Clean dependency injection for tenancy, database, and identity
 * Service layer pattern with thin HTTP routes
 * Configurable identity providers: headers or JWT
