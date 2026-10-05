@@ -1,9 +1,9 @@
 # fastkit(ty) 😼  
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)
-![License](https://img.shields.io/github/license/abhilash-m96/fastkitty)
-![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.142+-009688)
+![License](https://img.shields.io/github/license/abhilash-m96/fastkitty?v=2)
+![Stars](https://img.shields.io/github/stars/abhilash-m96/fastkitty?style=social&v=2)
 
 ---
 
