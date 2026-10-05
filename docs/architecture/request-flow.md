@@ -68,9 +68,10 @@ Depending on `USER_DATA_SOURCE`:
 
 ### 4. Database Session Resolution (`api/deps/db.py`)
 - Reads the active `TENANCY_DB_STRATEGY`.
+- Fail-closes on tenant status: `get_db` directly depends on `require_active_tenant`, ensuring inactive tenants are rejected with `403 Forbidden` before a DB connection or session is ever allocated.
 - Fetches the tenant's database connection credentials from the active secrets provider.
 - Acquires or pools the async engine via the LRU cache.
-- For `schema` strategy, executes `SET search_path TO "<schema>", public`.
+- For `schema` strategy, attaches an `after_begin` event listener executing transaction-scoped `SET LOCAL search_path TO "<schema>", public`.
 - Yields the `AsyncSession` to the request scope.
 
 ### 5. Thin Route Delegation (`api/routes/v1/`)
@@ -79,5 +80,5 @@ The route handler extracts request data, receives the injected service and featu
 ### 6. Cleanup & Teardown
 - FastAPI automatically triggers generator cleanup in `get_db_session`.
 - Any uncommitted transactions are rolled back.
-- In `schema` strategy, `RESET search_path` is executed.
+- In `schema` strategy, `SET LOCAL` search path settings naturally revert at transaction end.
 - The connection is cleanly returned to the pool.

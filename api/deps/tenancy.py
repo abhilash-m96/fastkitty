@@ -79,7 +79,7 @@ def get_tenancy_secrets_service(settings: Settings = Depends(get_settings)):
 
 
 def get_tenant_secrets(
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_config: TenantConfig = Depends(require_active_tenant),
     tenancy_secrets_service: TenancySecretsService = Depends(
         get_tenancy_secrets_service
     ),
@@ -89,8 +89,14 @@ def get_tenant_secrets(
     Only reached if tenant exists and is active.
     """
     secrets: TenantSecrets = tenancy_secrets_service.get_tenant_secrets(
-        tenant_id=tenant_id
+        tenant_id=tenant_config.tenant_id
     )
+    if not secrets:
+        logger.warning("Secrets for tenant '%s' not found", tenant_config.tenant_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Secrets for tenant '{tenant_config.tenant_id}' not found",
+        )
     return secrets
 
 
@@ -113,7 +119,7 @@ def get_feature_config(key: str | None = None):
 
     def _get_feature_config(
         request: Request,
-        tenant_config: TenantConfig = Depends(get_tenant_config),
+        tenant_config: TenantConfig = Depends(require_active_tenant),
     ) -> FeatureConfig | None:
         feature_key = key or request.scope["route"].name
         features = tenant_config.features or {}

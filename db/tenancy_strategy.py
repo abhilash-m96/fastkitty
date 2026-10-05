@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 from sqlalchemy import event, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -27,6 +28,14 @@ from models.base import TenantScopedModel
 from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_url(url: str) -> str:
+    """Mask credentials in a database connection URL for safe logging and error reporting."""
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:
+        return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
 
 # Configurable timeout (seconds) for waiting on idle_event before
 # force-disposing an evicted engine. Prevents dispose tasks from blocking forever
@@ -167,13 +176,13 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         async with self._registry_lock:
             entry = self._engines.get(db_uri)
             if entry is None:
-                logger.info("Allocating new database engine pool for: %s", db_uri)
+                logger.info("Allocating new database engine pool for: %s", _mask_url(db_uri))
                 entry = self._create_entry(db_uri=db_uri, db_config=db_config)
                 self._engines[db_uri] = entry
             else:
                 self._validate_pool_config(entry=entry, db_config=db_config)
                 self._engines.move_to_end(db_uri)
-                logger.debug("Reusing cached database engine pool for: %s", db_uri)
+                logger.debug("Reusing cached database engine pool for: %s", _mask_url(db_uri))
 
             entry.active_sessions += 1
             if entry.idle_event is not None:
@@ -184,7 +193,7 @@ class DatabaseTenancyStrategy(TenancyStrategy):
                 logger.info(
                     "Engine pool LRU limit (%s) reached. Evicting oldest pool: %s",
                     self._max_engines,
-                    entry_to_dispose.db_uri,
+                    _mask_url(entry_to_dispose.db_uri),
                 )
 
         if entry_to_dispose is not None:
@@ -242,7 +251,7 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         if entry.pool_config != expected:
             raise ValueError(
                 "Database strategy received conflicting pool settings for the same "
-                f"database URL: {entry.db_uri}"
+                f"database URL: {_mask_url(entry.db_uri)}"
             )
 
     def _schedule_dispose(self, entry: _DatabaseEngineEntry) -> asyncio.Task[None]:
@@ -267,7 +276,7 @@ class DatabaseTenancyStrategy(TenancyStrategy):
                 logger.warning(
                     "Timed out waiting for engine %r to become idle before disposal "
                     "(%d active session(s) still in flight). Force-disposing.",
-                    entry.db_uri,
+                    _mask_url(entry.db_uri),
                     entry.active_sessions,
                 )
         await entry.engine.dispose()
@@ -305,7 +314,7 @@ class _SharedEngineTenancyStrategy(TenancyStrategy):
                 logger.info(
                     "Initializing shared database engine pool for %s strategy: %s",
                     strategy_name,
-                    db_uri,
+                    _mask_url(db_uri),
                 )
                 self._shared_entry = self._create_entry(
                     db_uri=db_uri, db_config=db_config
@@ -314,7 +323,7 @@ class _SharedEngineTenancyStrategy(TenancyStrategy):
                 if self._shared_entry.db_uri != db_uri:
                     raise ValueError(
                         f"{strategy_name} strategy requires all tenants to share the "
-                        f"same database URL, got: {db_uri}"
+                        f"same database URL, got: {_mask_url(db_uri)}"
                     )
                 self._validate_shared_config(
                     entry=self._shared_entry, db_config=db_config
@@ -367,7 +376,7 @@ class _SharedEngineTenancyStrategy(TenancyStrategy):
         if entry.pool_config != expected:
             raise ValueError(
                 f"{self.strategy_name} strategy received conflicting pool settings "
-                f"for the shared database URL: {entry.db_uri}"
+                f"for the shared database URL: {_mask_url(entry.db_uri)}"
             )
 
 
@@ -386,39 +395,47 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
         schema_name = _normalize_schema_name(db_config)
         entry = await self._get_or_create_entry(db_config, strategy_name="Schema")
         session = entry.session_factory()
-        try:
-            logger.debug(
-                "Switching PostgreSQL search_path to '%s', public for tenant '%s'",
-                schema_name,
-                tenant_db_context.tenant_id,
+
+        def _set_tenant_search_path(
+            sess: object,
+            transaction: object,
+            connection: Any,
+        ) -> None:
+            connection.exec_driver_sql(
+                f'SET LOCAL search_path TO "{schema_name}", public'
             )
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
+
+        event.listen(session.sync_session, "after_begin", _set_tenant_search_path)
+        logger.debug(
+            "Configured PostgreSQL search_path to '%s', public for tenant '%s'",
+            schema_name,
+            tenant_db_context.tenant_id,
+        )
+        try:
             yield session
         except Exception:
             await session.rollback()
             raise
         finally:
-            try:
-                await session.execute(text("RESET search_path"))
-            finally:
-                await session.close()
+            await session.close()
 
 
 class RowTenancyStrategy(_SharedEngineTenancyStrategy):
     """
     Row-level tenant isolation via ORM event hooks.
 
-    IMPORTANT — ORM bypass:
-    Isolation is enforced only for ORM-level queries routed through SQLAlchemy's
-    do_orm_execute event. The following patterns bypass the tenant filter entirely
-    and must NOT be used against tenant-scoped tables:
+    SQLAlchemy ORM execute and write hooks dynamically enforce tenant isolation:
+    - ORM statements (`select`, `update`, `delete`) automatically receive `with_loader_criteria`
+      filtering by `tenant_id`.
+    - Pending inserts in `sync_session.new` are stamped with the active `tenant_id`.
+    - Mutations in `sync_session.dirty` and deletions in `sync_session.deleted` verify
+      that modified instances belong to the active `tenant_id`.
 
-        # These bypass the tenant filter — do not use on TenantScopedModel tables:
-        await session.execute(text("SELECT * FROM posts"))
-        await session.execute(update(Post).values(title="..."))
-
-    For ad-hoc queries, always include an explicit WHERE tenant_id = :tid clause
-    and bind the value from get_current_row_tenant_id().
+    IMPORTANT — Raw SQL bypass:
+    Isolation is enforced only for queries routed through SQLAlchemy ORM.
+    Raw SQL statements (e.g. `await session.execute(text("SELECT ..."))`) bypass ORM hooks.
+    For raw SQL, always include an explicit `WHERE tenant_id = :tid` filter, or consider
+    PostgreSQL Row-Level Security (RLS) as a database-level backstop.
     """
 
     strategy_name: TenancyDBStrategy = "row"
@@ -531,13 +548,19 @@ def _configure_row_session(session: AsyncSession) -> None:
 
 class _ExecuteState(Protocol):
     is_select: bool
+    is_update: bool
+    is_delete: bool
     is_column_load: bool
     is_relationship_load: bool
     statement: Any
 
 
 def _apply_row_tenant_scope(execute_state: _ExecuteState) -> None:
-    if not execute_state.is_select:
+    if not (
+        execute_state.is_select
+        or execute_state.is_update
+        or execute_state.is_delete
+    ):
         return
     if execute_state.is_column_load:
         return
@@ -557,6 +580,7 @@ def _apply_row_tenant_scope(execute_state: _ExecuteState) -> None:
 class _SyncSessionLike(Protocol):
     new: Iterable[object]
     dirty: Iterable[object]
+    deleted: Iterable[object]
 
 
 def _stamp_row_tenant_writes(sync_session: _SyncSessionLike, *_: object) -> None:
@@ -572,5 +596,14 @@ def _stamp_row_tenant_writes(sync_session: _SyncSessionLike, *_: object) -> None
         if instance.tenant_id != tenant_id:
             raise ValueError(
                 "Row strategy detected a cross-tenant write for "
+                f"{instance.__class__.__name__}"
+            )
+
+    for instance in sync_session.deleted:
+        if not isinstance(instance, TenantScopedModel):
+            continue
+        if instance.tenant_id != tenant_id:
+            raise ValueError(
+                "Row strategy detected a cross-tenant delete for "
                 f"{instance.__class__.__name__}"
             )

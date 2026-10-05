@@ -1,29 +1,47 @@
 """Schema-per-tenant strategy tests."""
 
 import asyncio
+from typing import Any, cast
 
 import pytest
-from typing import cast
 
 from config.settings import Settings
 from db.tenancy_strategy import SchemaTenancyStrategy, TenantDBContext
 from schemas.tenancy import DatabaseConfig
 
 
+class FakeConnection:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def exec_driver_sql(self, sql: str) -> None:
+        self.statements.append(sql)
+
+
+class FakeSyncSession:
+    def __init__(self) -> None:
+        self.listeners: dict[str, list[Any]] = {}
+
+    def trigger_after_begin(self, connection: FakeConnection) -> None:
+        for fn in self.listeners.get("after_begin", []):
+            fn(self, None, connection)
+
+
 class FakeAsyncSession:
     def __init__(self) -> None:
         self.rollback_calls = 0
         self.close_calls = 0
-        self.statements: list[str] = []
-
-    async def execute(self, statement: object) -> None:
-        self.statements.append(str(statement))
+        self.sync_session = FakeSyncSession()
+        self.connection = FakeConnection()
 
     async def rollback(self) -> None:
         self.rollback_calls += 1
 
     async def close(self) -> None:
         self.close_calls += 1
+
+    def trigger_after_begin(self) -> None:
+        self.sync_session.trigger_after_begin(self.connection)
 
 
 class FakeAsyncEngine:
@@ -82,17 +100,24 @@ def _patch_engine_factory(
 
         return _factory
 
+    def fake_listen(target: object, event_name: str, fn: Any) -> None:
+        if isinstance(target, FakeSyncSession):
+            target.listeners.setdefault(event_name, []).append(fn)
+
     monkeypatch.setattr(
         "db.tenancy_strategy.create_async_engine", fake_create_async_engine
     )
     monkeypatch.setattr(
         "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
     )
+    monkeypatch.setattr(
+        "db.tenancy_strategy.event.listen", fake_listen
+    )
     return created_engines
 
 
 @pytest.mark.asyncio
-async def test_schema_strategy_sets_and_resets_search_path(
+async def test_schema_strategy_sets_search_path_on_begin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_engines = _patch_engine_factory(monkeypatch)
@@ -101,14 +126,45 @@ async def test_schema_strategy_sets_and_resets_search_path(
 
     async with strategy.get_session(tenant) as raw_session:
         session = cast(FakeAsyncSession, raw_session)
-        assert session.statements == ["SET search_path TO tenant_one, public"]
+        assert session.connection.statements == []
+        session.trigger_after_begin()
+        assert session.connection.statements == [
+            'SET LOCAL search_path TO "tenant_one", public'
+        ]
 
-    assert session.statements == [
-        "SET search_path TO tenant_one, public",
-        "RESET search_path",
-    ]
     assert session.close_calls == 1
     assert len(created_engines) == 1
+
+    await strategy.teardown()
+
+
+@pytest.mark.asyncio
+async def test_schema_strategy_search_path_reapplied_after_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify search_path is re-applied on subsequent transactions after session.rollback()."""
+    _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
+    tenant = _make_tenant_context("tenant_1", schema_name="tenant_one")
+
+    async with strategy.get_session(tenant) as raw_session:
+        session = cast(FakeAsyncSession, raw_session)
+        # Transaction 1 begins
+        session.trigger_after_begin()
+        assert session.connection.statements == [
+            'SET LOCAL search_path TO "tenant_one", public'
+        ]
+
+        # Application encounters an error and rolls back mid-request
+        await session.rollback()
+        assert session.rollback_calls == 1
+
+        # Transaction 2 begins on the same session/connection
+        session.trigger_after_begin()
+        assert session.connection.statements == [
+            'SET LOCAL search_path TO "tenant_one", public',
+            'SET LOCAL search_path TO "tenant_one", public',
+        ]
 
     await strategy.teardown()
 
@@ -126,9 +182,15 @@ async def test_schema_strategy_reuses_shared_engine_for_multiple_tenants(
         async with strategy.get_session(tenant_two) as raw_session_two:
             session_one = cast(FakeAsyncSession, raw_session_one)
             session_two = cast(FakeAsyncSession, raw_session_two)
+            session_one.trigger_after_begin()
+            session_two.trigger_after_begin()
             assert len(created_engines) == 1
-            assert session_one.statements == ["SET search_path TO tenant_one, public"]
-            assert session_two.statements == ["SET search_path TO tenant_two, public"]
+            assert session_one.connection.statements == [
+                'SET LOCAL search_path TO "tenant_one", public'
+            ]
+            assert session_two.connection.statements == [
+                'SET LOCAL search_path TO "tenant_two", public'
+            ]
 
     await strategy.teardown()
 
@@ -183,22 +245,7 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed_statements: list[tuple[str, list[str]]] = []
-
-    def fake_create_async_engine(url: str, **_: object) -> FakeAsyncEngine:
-        return FakeAsyncEngine(url)
-
-    def fake_async_sessionmaker(**_: object):
-        def _factory() -> FakeAsyncSession:
-            return FakeAsyncSession()
-
-        return _factory
-
-    monkeypatch.setattr(
-        "db.tenancy_strategy.create_async_engine", fake_create_async_engine
-    )
-    monkeypatch.setattr(
-        "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
-    )
+    _patch_engine_factory(monkeypatch)
 
     strategy = SchemaTenancyStrategy(
         Settings.model_construct(
@@ -213,17 +260,17 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
 
     async def run_request(tenant: TenantDBContext) -> None:
         async with strategy.get_session(tenant) as raw_session:
+            session = cast(FakeAsyncSession, raw_session)
+            session.trigger_after_begin()
             await asyncio.sleep(0)
-        session = cast(FakeAsyncSession, raw_session)
-        observed_statements.append((tenant.tenant_id, session.statements))
+            observed_statements.append((tenant.tenant_id, list(session.connection.statements)))
 
     await asyncio.gather(*(run_request(tenants[index % 2]) for index in range(20)))
 
     for tenant_id, statements in observed_statements:
         expected_schema = "tenant_one" if tenant_id == "tenant_1" else "tenant_two"
         assert statements == [
-            f"SET search_path TO {expected_schema}, public",
-            "RESET search_path",
+            f'SET LOCAL search_path TO "{expected_schema}", public',
         ]
 
     await strategy.teardown()
