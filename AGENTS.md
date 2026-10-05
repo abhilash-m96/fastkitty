@@ -149,18 +149,30 @@ When configuring a new service, **execute all steps sequentially, asking ONE que
     > *"Here is the proposed feature configuration structure and how the service class will consume it to enforce these rules. Is something like this okay with you, or should we adjust the schema/keys?"*
   - **Wait for explicit developer confirmation** before proceeding to the next step.
 
-### Step 6: Resources, Database Models & Request/Response Schemas (Gate Check 2 - Data Contracts)
+### Step 6: Core Entities & Database Models (Gate Check 2 - Database Layer)
 - With tenant capabilities, quotas, and feature flags locked in from Step 5, identify the core entities/resources needed to support them.
 - Ask: *"What are the core entities/resources this service manages?"* (e.g., `Project`, `Invoice`, `Subscription`).
 - For each resource, determine the primary attributes/fields, relationships, and constraints — ensuring any flags required by tenant features (e.g. visibility toggles, status, limits) are explicitly included.
 - Confirm that resources should be tenant-scoped using `TenantScopedModel` and `TimestampedModel`.
 - **MANDATORY PRESENTATION & APPROVAL GATE**:
-  - Before writing any code, draft and **present the exact proposed SQLAlchemy models** AND the **exact Pydantic route request and response payload schemas** (`*Create`, `*Update`, `*Response` with types and validations).
+  - Before writing any code, draft and **present ONLY the proposed SQLAlchemy database models** (inheriting `TenantScopedModel`, `TimestampedModel`, `Base`) with explicit column types, nullable flags, and default values.
+  - Do **NOT** include Pydantic schemas in this step. Keep the focus entirely on database design to avoid overwhelming the developer.
   - Explicitly ask the developer:
-    > *"Here are the proposed database models and route request/response payload schemas. Does this data contract look good to you, or would you like to make any adjustments before we proceed?"*
+    > *"Here are the proposed SQLAlchemy database models. Do these tables and columns look good to you, or would you like to make any adjustments before we design the Pydantic API schemas?"*
   - **Wait for explicit developer confirmation** before proceeding to the next step.
 
-### Step 7: API Endpoints & Route Contracts (Gate Check 3)
+### Step 7: Request & Response Schemas (Gate Check 3 - Pydantic Data Contracts)
+- Once the database models are confirmed, draft the Pydantic API payload schemas:
+  - Input schemas: `*Create`, `*Update` with explicit types and field validations.
+  - Output schemas: `*Response` configured with `model_config = ConfigDict(from_attributes=True)`.
+  - Ensure schemas correctly handle optional vs required attributes and any tenant visibility rules (e.g., hideable fields).
+- **MANDATORY PRESENTATION & APPROVAL GATE**:
+  - Present the exact proposed Pydantic schemas to the developer.
+  - Explicitly ask the developer:
+    > *"Here are the proposed Pydantic request and response schemas for the API. Does this payload contract look good to you, or should we adjust any fields or validations before we map out the endpoints?"*
+  - **Wait for explicit developer confirmation** before proceeding to the next step.
+
+### Step 8: API Endpoints & Route Contracts (Gate Check 4 - HTTP Layer)
 - Consult `docs/guides/adding-a-new-route.md`.
 - Present a clear table of REST operations needed (e.g. `POST /v1/jobs`, `GET /v1/jobs`, `GET /v1/jobs/{id}`).
 - Define the route naming contract: `name="<feature_name>"`.
@@ -194,13 +206,15 @@ When generating code, strictly follow this implementation checklist:
 5. **No `*` in Signatures**: Write standard positional and keyword parameters. Avoid bare `*` keyword-only parameter separators.
 6. **Pure Services**: Services receive `session: AsyncSession` in `__init__`. They never accept or import `Request`, `Response`, or FastAPI dependencies.
 7. **Comprehensive Tests**: Every new service method and route must have automated tests using `apply_overrides` and pytest (run with `uv run pytest`).
-8. **Step-by-Step Presentation & Approval Gates**: Tenancy feature configs and data models / route schemas are the foundation of any FastKitty service. Never scaffold them silently or jump straight into implementation. You MUST present:
+8. **Step-by-Step Presentation & Approval Gates**: Tenancy feature configs, database models, and route schemas are the foundation of any FastKitty service. Never scaffold them silently or jump straight into implementation. You MUST present:
    - Tenancy DB strategy `.env` wiring
    - Tenancy config & secrets provider `.env` wiring
    - Upstream user identity `.env` wiring
    - The tenant feature config (along with how the pure service consumes it)
-   - The database models and route request/response schemas
-   sequentially, step-by-step, seeking explicit developer approval at each gate before generating code.
+   - The SQLAlchemy database models (isolated approval)
+   - The Pydantic route request/response payload schemas (isolated approval)
+   - The API endpoints table and route contracts
+   sequentially, step-by-step, seeking explicit developer approval at each individual gate before proceeding.
 9. **Zero Hardcoded Tenant Branching**: Never write code that branches on specific `tenant_id` strings (e.g. `if tenant_id == "..."`). All behavioral divergence between tenants MUST be driven by declarative flags/quotas inside `tenants_config.json` and evaluated generically in the service class via `feature_config`.
 
 ---
