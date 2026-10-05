@@ -170,6 +170,49 @@ async def test_schema_strategy_search_path_reapplied_after_rollback(
 
 
 @pytest.mark.asyncio
+async def test_schema_strategy_pooled_connection_isolation_after_prior_tenant_commit_and_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies isolation when Tenant B reuses a pooled connection after Tenant A commits,
+    and Tenant B encounters a rollback mid-request.
+    """
+    _patch_engine_factory(monkeypatch)
+    strategy = SchemaTenancyStrategy(_make_settings())
+    tenant_a = _make_tenant_context("tenant_a", schema_name="schema_a")
+    tenant_b = _make_tenant_context("tenant_b", schema_name="schema_b")
+
+    # Request 1: Tenant A commits
+    async with strategy.get_session(tenant_a) as raw_sess_a:
+        sess_a = cast(FakeAsyncSession, raw_sess_a)
+        sess_a.trigger_after_begin()
+        assert sess_a.connection.statements == [
+            'SET LOCAL search_path TO "schema_a", public'
+        ]
+
+    # Request 2: Tenant B gets session, rolls back mid-request, retries
+    async with strategy.get_session(tenant_b) as raw_sess_b:
+        sess_b = cast(FakeAsyncSession, raw_sess_b)
+        sess_b.trigger_after_begin()
+        assert sess_b.connection.statements == [
+            'SET LOCAL search_path TO "schema_b", public'
+        ]
+
+        # Tenant B hits rollback (e.g. caught constraint error)
+        await sess_b.rollback()
+
+        # Tenant B continues querying in a new transaction
+        sess_b.trigger_after_begin()
+        assert sess_b.connection.statements == [
+            'SET LOCAL search_path TO "schema_b", public',
+            'SET LOCAL search_path TO "schema_b", public',
+        ]
+        # Guarantee schema_a was never set on Tenant B's session
+        assert all('schema_a' not in stmt for stmt in sess_b.connection.statements)
+
+    await strategy.teardown()
+
+
+@pytest.mark.asyncio
 async def test_schema_strategy_reuses_shared_engine_for_multiple_tenants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

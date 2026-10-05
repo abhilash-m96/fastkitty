@@ -3,7 +3,7 @@
 import logging
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -405,3 +405,143 @@ def test_row_strategy_rejects_deleting_cross_tenant_instance() -> None:
         _stamp_row_tenant_writes(sync_session)
 
     reset_current_row_tenant_id(tenant_token)
+
+
+# ---------------------------------------------------------------------------
+# Blocker 2 (End-to-End): Live SQLite Test for Bulk Update & Delete
+# ---------------------------------------------------------------------------
+
+from sqlalchemy import Integer, String, create_engine, event as sa_event
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from models.base import TenantScopedModel
+
+
+class _E2ETestBase(DeclarativeBase):
+    pass
+
+
+class _E2EItem(TenantScopedModel, _E2ETestBase):
+    __tablename__ = "security_test_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
+def test_row_strategy_e2e_bulk_update_and_delete_isolation_with_sqlite() -> None:
+    """Verifies with live SQLite engine that bulk update and delete statements
+    cannot affect or delete other tenants' rows under any circumstance.
+    """
+    engine = create_engine("sqlite:///:memory:")
+    _E2ETestBase.metadata.create_all(engine)
+
+    session = Session(engine)
+    sa_event.listen(session, "do_orm_execute", _apply_row_tenant_scope)
+    sa_event.listen(session, "before_flush", _stamp_row_tenant_writes)
+
+    # Tenant A writes two items
+    t_a = set_current_row_tenant_id("tenant_a")
+    item_a1 = _E2EItem(name="Item A1")
+    item_a2 = _E2EItem(name="Item A2")
+    session.add_all([item_a1, item_a2])
+    session.commit()
+    reset_current_row_tenant_id(t_a)
+
+    # Tenant B writes two items
+    t_b = set_current_row_tenant_id("tenant_b")
+    item_b1 = _E2EItem(name="Item B1")
+    item_b2 = _E2EItem(name="Item B2")
+    session.add_all([item_b1, item_b2])
+    session.commit()
+
+    # Step 1: Bulk UPDATE under Tenant B
+    session.execute(update(_E2EItem).values(name="B Mutated"))
+    session.commit()
+
+    # Verify Tenant B sees its updated items
+    b_items = session.scalars(select(_E2EItem)).all()
+    assert len(b_items) == 2
+    assert all(i.name == "B Mutated" for i in b_items)
+    reset_current_row_tenant_id(t_b)
+
+    # Verify Tenant A's items are completely untouched
+    t_a = set_current_row_tenant_id("tenant_a")
+    a_items = session.scalars(select(_E2EItem)).all()
+    assert len(a_items) == 2
+    assert {i.name for i in a_items} == {"Item A1", "Item A2"}
+    reset_current_row_tenant_id(t_a)
+
+    # Step 2: Bulk DELETE under Tenant B
+    t_b = set_current_row_tenant_id("tenant_b")
+    session.execute(delete(_E2EItem))
+    session.commit()
+
+    # Verify Tenant B has 0 items remaining
+    b_items_after = session.scalars(select(_E2EItem)).all()
+    assert len(b_items_after) == 0
+    reset_current_row_tenant_id(t_b)
+
+    # Verify Tenant A STILL has both items intact in the database
+    t_a = set_current_row_tenant_id("tenant_a")
+    a_items_after = session.scalars(select(_E2EItem)).all()
+    assert len(a_items_after) == 2
+    assert {i.name for i in a_items_after} == {"Item A1", "Item A2"}
+
+    # Step 3: Attempting cross-tenant delete of loaded instance fails before flush
+    alien_item = a_items_after[0]
+    reset_current_row_tenant_id(t_a)
+
+    t_b = set_current_row_tenant_id("tenant_b")
+    session.delete(alien_item)
+    with pytest.raises(
+        ValueError, match="Row strategy detected a cross-tenant delete for _E2EItem"
+    ):
+        session.flush()
+
+    reset_current_row_tenant_id(t_b)
+    session.rollback()
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Blocker 1 & 3: Masking on Engine Disposal Warnings
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_database_strategy_masks_password_in_disposal_timeout_warning(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that engine disposal timeout warnings mask credentials."""
+    import asyncio
+    from db.tenancy_strategy import _DatabaseEngineEntry
+
+    secret_pw = "SuperDisposalSecretPass!"
+    uri = f"postgresql+asyncpg://admin:{secret_pw}@db-cluster:5432/production_db"
+
+    strategy = DatabaseTenancyStrategy(
+        Settings.model_construct(
+            TENANCY_DB_STRATEGY="database",
+            USER_DATA_SOURCE={"type": "header"},
+        )
+    )
+
+    fake_engine = MagicMock()
+    fake_engine.dispose = AsyncMock()
+
+    entry = _DatabaseEngineEntry(
+        engine=fake_engine,
+        session_factory=MagicMock(),
+        pool_config={"pool_size": 5, "max_overflow": 10, "pool_timeout": 30.0},
+        db_uri=uri,
+        active_sessions=1,  # Simulate busy session
+        idle_event=asyncio.Event(),
+    )
+
+    monkeypatch.setattr("db.tenancy_strategy._DISPOSE_IDLE_TIMEOUT", 0.01)
+
+    with caplog.at_level(logging.WARNING):
+        await strategy._dispose_entry(entry)
+
+    assert secret_pw not in caplog.text
+    assert "admin:***@db-cluster:5432/production_db" in caplog.text
+    assert fake_engine.dispose.await_count == 1
