@@ -29,12 +29,18 @@ _source = get_settings().USER_DATA_SOURCE
 # -----------------------
 
 
+import types
+
+
 def _is_literal_field(field_info) -> bool:
     return typing.get_origin(field_info.annotation) is Literal
 
 
 def _is_optional(annotation) -> bool:
-    return get_origin(annotation) is Union and type(None) in get_args(annotation)
+    return (
+        get_origin(annotation) in (Union, types.UnionType)
+        and type(None) in get_args(annotation)
+    )
 
 
 def _is_field_active(src, field_name: str, field_info) -> bool:
@@ -142,7 +148,17 @@ async def _get_user_data_unconfigured() -> UserData | None:
 def _build_dynamic_signature(model_class, src) -> inspect.Signature:
     params = []
 
-    for field_name, field_info in model_class.model_fields.items():
+    if isinstance(src, UserDataHeaderSource):
+        target_fields = [
+            f
+            for f in model_class._payload_key_map.keys()
+            if f in model_class.model_fields
+        ]
+    else:
+        target_fields = ["header_name"]
+
+    for field_name in target_fields:
+        field_info = model_class.model_fields[field_name]
         if not _is_field_active(src, field_name, field_info):
             continue
         header_name = getattr(src, field_name)
