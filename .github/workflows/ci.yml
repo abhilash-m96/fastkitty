@@ -37,7 +37,7 @@ jobs:
       FASTKITTY_REQUIRE_PG: "1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: astral-sh/setup-uv@8735233e728771bc4589d38102dd05c1064d1f21 # v5.3.0
+      - uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
         with:
           enable-cache: true
       - run: uv sync --frozen --group docs
@@ -57,10 +57,10 @@ jobs:
         with:
           fetch-depth: 0 # scan full history, not just the tip
       - name: Secret scan (full history)
-        uses: gitleaks/gitleaks-action@433391d17cf87293b6e76cf0a29be85a420ee9b5 # v2.3.9
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: astral-sh/setup-uv@8735233e728771bc4589d38102dd05c1064d1f21 # v5.3.0
+      - uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
       - name: Dependency audit
         run: |
           uv export --frozen --no-dev --no-hashes --format requirements-txt > /tmp/requirements.txt
