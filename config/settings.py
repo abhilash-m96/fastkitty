@@ -127,9 +127,9 @@ class Settings(BaseSettings):
     # App Settings
     APP_NAME: str = Field(default="fastkitty")
     DESCRIPTION: str = Field(default="fastkitty multi-tenant service template")
-    DEBUG: bool = Field(default=True)
+    DEBUG: bool = Field(default=False)
     VERSION: str = Field(default="0.1.0")
-    ENV: str = Field(default="dev")
+    ENV: str = Field(default="prod")
 
     # Tenancy Settings
     TENANCY_CONFIG_CONNECTION: TenancyConfigConnection = Field(
@@ -157,6 +157,12 @@ class Settings(BaseSettings):
         description="User data extraction strategy (headers | jwt | single header claims). "
         "Omit entirely if the service does not require user identity extraction.",
     )
+    TRUST_UPSTREAM_AUTH: bool = Field(
+        default=False,
+        description="Explicit opt-in to trust upstream gateway identity headers/claims. "
+        "Must be True when USER_DATA_SOURCE is configured and ENV != 'dev'.",
+    )
+
 
     # Logfire / Telemetry Settings
     LOGFIRE_ENABLED: bool = Field(

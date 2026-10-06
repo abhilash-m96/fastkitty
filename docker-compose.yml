@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
@@ -37,7 +37,8 @@ services:
       - .:/app
     stdin_open: true
     tty: true
-    command: sh -c "uv run alembic upgrade head && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    command: sh -c "if [ ! -f tenants_secrets.docker.json ] && [ -f tenants_secrets.docker.example.json ]; then cp tenants_secrets.docker.example.json tenants_secrets.docker.json; fi && uv run alembic upgrade head && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+
 
 volumes:
   postgres_data:

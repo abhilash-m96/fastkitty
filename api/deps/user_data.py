@@ -1,13 +1,15 @@
 import inspect
 import json
 import logging
+import types
 import typing
 from collections.abc import Callable
 from typing import Any, Coroutine, Literal, get_origin, get_args, Union
 
 import jwt
-from fastapi import HTTPException, Header, status
+from fastapi import HTTPException, Header, Request, status
 from jwt import PyJWTError
+
 
 from config.settings import (
     UserDataHeaderSource,
@@ -27,9 +29,6 @@ _source = get_settings().USER_DATA_SOURCE
 # -----------------------
 # Helpers
 # -----------------------
-
-
-import types
 
 
 def _is_literal_field(field_info) -> bool:
@@ -76,11 +75,35 @@ def _extract_bearer_token(header_value: str | None, prefix: str | None) -> str |
     raise ValueError("Invalid Authorization header format")
 
 
-def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
+def _extract_jwt_token(
+    source: UserDataJWTSource,
+    token: str,
+    expected_tenant_id: str | None = None,
+) -> UserData:
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+    except PyJWTError as exc:
+        raise ValueError("Invalid JWT token") from exc
+
+    if unverified_header.get("alg", "").lower() == "none":
+        raise ValueError("JWT 'none' algorithm is forbidden")
+
     try:
         claims = jwt.decode(token, options={"verify_signature": False})
     except PyJWTError as exc:
         raise ValueError("Invalid JWT token") from exc
+
+    if expected_tenant_id:
+        token_tenant = (
+            claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+        )
+        if (
+            token_tenant is not None
+            and str(token_tenant).strip().lower() != expected_tenant_id.strip().lower()
+        ):
+            raise PermissionError(
+                f"Token tenant '{token_tenant}' does not match requested tenant '{expected_tenant_id}'"
+            )
 
     result = {}
     for field_name, field_info in UserDataJWTSource.model_fields.items():
@@ -102,7 +125,9 @@ def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
 
 
 def _extract_single_header_claims(
-    source: UserDataSingleHeaderClaimsSource, header_value: str
+    source: UserDataSingleHeaderClaimsSource,
+    header_value: str,
+    expected_tenant_id: str | None = None,
 ) -> UserData:
     try:
         claims = json.loads(header_value)
@@ -111,6 +136,18 @@ def _extract_single_header_claims(
 
     if not isinstance(claims, dict):
         raise ValueError("User claims header must be a JSON object")
+
+    if expected_tenant_id:
+        claims_tenant = (
+            claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+        )
+        if (
+            claims_tenant is not None
+            and str(claims_tenant).strip().lower() != expected_tenant_id.strip().lower()
+        ):
+            raise PermissionError(
+                f"Claims tenant '{claims_tenant}' does not match requested tenant '{expected_tenant_id}'"
+            )
 
     result = {}
     for field_name, field_info in UserDataSingleHeaderClaimsSource.model_fields.items():
@@ -133,6 +170,7 @@ def _extract_single_header_claims(
         result["roles"] = _parse_roles(result["roles"], ",")
 
     return UserData(**result)
+
 
 
 async def _get_user_data_unconfigured() -> UserData | None:
@@ -174,6 +212,16 @@ def _build_dynamic_signature(model_class, src) -> inspect.Signature:
             annotation=str if is_required else str | None,
         )
         params.append(param)
+
+    # Allow Request injection for cross-tenant validation without exposing it in OpenAPI parameters
+    params.append(
+        inspect.Parameter(
+            "request",
+            inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Request,
+        )
+    )
 
     return inspect.Signature(params)
 
@@ -252,13 +300,26 @@ def _build_get_user_data(
                 token = _extract_bearer_token(auth_header, src.prefix)
                 if not token:
                     raise ValueError("Authorization token is required")
-                user_data = _extract_jwt_token(src, token)
+
+                request: Request | None = kwargs.get("request")
+                expected_tenant_id = kwargs.get("expected_tenant_id")
+                if not expected_tenant_id and request is not None:
+                    expected_tenant_id = request.headers.get("x-tenant-id")
+
+                user_data = _extract_jwt_token(
+                    src, token, expected_tenant_id=expected_tenant_id
+                )
                 enrich_span_with_user(
                     user_id=user_data.user_id,
                     email=user_data.email,
                     roles=user_data.roles,
                 )
                 return user_data
+            except PermissionError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=str(exc),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -283,13 +344,26 @@ def _build_get_user_data(
                 claims_header = kwargs.get("header_name")
                 if not claims_header:
                     raise ValueError(f"Missing required header: {src.header_name}")
-                user_data = _extract_single_header_claims(src, claims_header)
+
+                request: Request | None = kwargs.get("request")
+                expected_tenant_id = kwargs.get("expected_tenant_id")
+                if not expected_tenant_id and request is not None:
+                    expected_tenant_id = request.headers.get("x-tenant-id")
+
+                user_data = _extract_single_header_claims(
+                    src, claims_header, expected_tenant_id=expected_tenant_id
+                )
                 enrich_span_with_user(
                     user_id=user_data.user_id,
                     email=user_data.email,
                     roles=user_data.roles,
                 )
                 return user_data
+            except PermissionError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=str(exc),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -303,6 +377,7 @@ def _build_get_user_data(
         )
         _claims_handler.__name__ = "get_user_data"
         return _claims_handler
+
 
     raise RuntimeError(f"Unsupported USER_DATA_SOURCE type: {src!r}")
 

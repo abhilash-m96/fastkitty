@@ -12,3 +12,7 @@ htmlcov
 *.docx
 *.log
 .DS_Store
+.env*
+!.env.example
+tenants_secrets*.json
+!tenants_secrets*.example.json

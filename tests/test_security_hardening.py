@@ -8,14 +8,21 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select, update
+from sqlalchemy import Integer, String, create_engine, delete, event as sa_event, select, update
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from api.deps.db import get_db
-from api.deps.tenancy import get_feature_config, get_tenant_secrets
-from config.settings import Settings
+from api.deps.tenancy import get_feature_config, get_tenant_id
+from api.deps.user_data import _extract_jwt_token, _extract_single_header_claims
+from config.settings import (
+    Settings,
+    UserDataHeaderSource,
+    UserDataJWTSource,
+    UserDataSingleHeaderClaimsSource,
+    get_settings,
+)
 from db.tenancy_strategy import (
     DatabaseTenancyStrategy,
-    RowTenancyStrategy,
     SchemaTenancyStrategy,
     TenantDBContext,
     _ExecuteState,
@@ -26,6 +33,8 @@ from db.tenancy_strategy import (
     set_current_row_tenant_id,
     reset_current_row_tenant_id,
 )
+from main import lifespan
+from models.base import TenantScopedModel
 from models.posts import BlogPost
 from schemas.tenancy import DatabaseConfig, FeatureConfig, TenantConfig, TenantSecrets
 
@@ -92,11 +101,6 @@ async def test_database_strategy_masks_password_in_pool_conflict_error() -> None
         ),
     )
 
-    # Patch create_async_engine and async_sessionmaker to avoid real DB connections
-    fake_engine = MagicMock()
-    fake_sessionmaker = MagicMock()
-
-    original_engines = strategy._engines
     entry = strategy._create_entry(db_uri=uri, db_config=tenant_1.db_config)
     strategy._engines[uri] = entry
 
@@ -411,10 +415,6 @@ def test_row_strategy_rejects_deleting_cross_tenant_instance() -> None:
 # Blocker 2 (End-to-End): Live SQLite Test for Bulk Update & Delete
 # ---------------------------------------------------------------------------
 
-from sqlalchemy import Integer, String, create_engine, event as sa_event
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
-from models.base import TenantScopedModel
-
 
 class _E2ETestBase(DeclarativeBase):
     pass
@@ -545,3 +545,218 @@ async def test_database_strategy_masks_password_in_disposal_timeout_warning(
     assert secret_pw not in caplog.text
     assert "admin:***@db-cluster:5432/production_db" in caplog.text
     assert fake_engine.dispose.await_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Tenant ID Header Validation & Anti-Smuggling Tests
+# ---------------------------------------------------------------------------
+
+def test_duplicate_tenant_id_headers_rejected() -> None:
+    """Duplicate X-Tenant-ID headers must be rejected with 400 Bad Request to prevent smuggling."""
+    test_app = FastAPI()
+
+    @test_app.get("/test-tenant-id")
+    def _route(tenant_id: str = Depends(get_tenant_id)) -> dict[str, str]:
+        return {"tenant_id": tenant_id}
+
+    with TestClient(test_app) as client:
+        response = client.get(
+            "/test-tenant-id",
+            headers=[("X-Tenant-ID", "tenant_a"), ("X-Tenant-ID", "tenant_b")],
+        )
+        assert response.status_code == 400
+        assert "Duplicate X-Tenant-ID headers detected" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "invalid_tenant_id",
+    [
+        "../vault/secret",
+        "tenant;drop table",
+        "tenant/sub",
+        "tenant with space",
+        "tenant$evil",
+        "tenant\nnewline",
+        "a" * 64,  # Exceeds max length of 63 chars
+        "",
+        "   ",
+    ],
+)
+def test_invalid_tenant_id_rejected_by_get_tenant_id(invalid_tenant_id: str) -> None:
+    """Invalid tenant IDs (path traversal, SQL injection, illegal chars, too long) must return 400."""
+    test_app = FastAPI()
+
+    @test_app.get("/test-tenant-id")
+    def _route(tenant_id: str = Depends(get_tenant_id)) -> dict[str, str]:
+        return {"tenant_id": tenant_id}
+
+    with TestClient(test_app) as client:
+        response = client.get(
+            "/test-tenant-id",
+            headers={"X-Tenant-ID": invalid_tenant_id},
+        )
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "Invalid Tenant ID format" in detail or "Tenant ID is required" in detail
+
+
+def test_valid_tenant_id_accepted_and_normalized() -> None:
+    """Valid tenant IDs must be accepted and normalized to lowercase."""
+    test_app = FastAPI()
+
+    @test_app.get("/test-tenant-id")
+    def _route(tenant_id: str = Depends(get_tenant_id)) -> dict[str, str]:
+        return {"tenant_id": tenant_id}
+
+    with TestClient(test_app) as client:
+        response = client.get(
+            "/test-tenant-id",
+            headers={"X-Tenant-ID": "Tenant_Alpha-01"},
+        )
+        assert response.status_code == 200
+        assert response.json()["tenant_id"] == "tenant_alpha-01"
+
+
+# ---------------------------------------------------------------------------
+# Provider Defense-in-Depth Tenant ID Validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "../traversal",
+        "..",
+        "/etc/passwd",
+        "tenant/path",
+        "tenant;drop",
+        "A" * 64,
+        "",
+    ],
+)
+def test_validate_tenant_id_helper_rejects_malformed(invalid_id: str) -> None:
+    """Provider-level validation helper must raise ValueError on malformed tenant IDs."""
+    from config.tenancy_providers import validate_tenant_id
+
+    with pytest.raises(ValueError, match="Invalid tenant_id"):
+        validate_tenant_id(invalid_id)
+
+
+def test_validate_tenant_id_helper_accepts_valid() -> None:
+    """Provider-level validation helper accepts valid normalized tenant IDs."""
+    from config.tenancy_providers import validate_tenant_id
+
+    assert validate_tenant_id("tenant_1") == "tenant_1"
+    assert validate_tenant_id("tenant-alpha-02") == "tenant-alpha-02"
+    assert validate_tenant_id("acme_corp_42") == "acme_corp_42"
+
+
+# ---------------------------------------------------------------------------
+# Public Health Check Route
+# ---------------------------------------------------------------------------
+
+def test_public_health_endpoint_accessible_without_auth_or_tenant() -> None:
+    """GET /v1/health must be publicly accessible without X-Tenant-ID or auth tokens."""
+    from main import app
+
+    with TestClient(app) as client:
+        response = client.get("/v1/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Upstream Auth Hardening (JWT alg: none and Cross-Tenant Claim Mismatch)
+# ---------------------------------------------------------------------------
+
+def test_jwt_mode_rejects_alg_none() -> None:
+    """JWT tokens specifying alg='none' must be rejected with 401 Unauthorized."""
+    import base64
+    import json
+
+    header_b64 = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        .decode()
+        .rstrip("=")
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(
+            json.dumps({"sub": "attacker", "tenant_id": "tenant_1"}).encode()
+        )
+        .decode()
+        .rstrip("=")
+    )
+    token = f"{header_b64}.{payload_b64}."
+
+    source = UserDataJWTSource()
+
+    with pytest.raises(ValueError, match="JWT 'none' algorithm is forbidden"):
+        _extract_jwt_token(source, token)
+
+
+def test_jwt_mode_rejects_cross_tenant_token_claim() -> None:
+    """JWT tokens containing a tenant claim mismatching requested X-Tenant-ID must be rejected."""
+    import jwt
+
+    token = jwt.encode(
+        {"sub": "user_a", "tenant_id": "tenant_a"},
+        key="test-secret-key-that-is-at-least-32-bytes-long",
+        algorithm="HS256",
+    )
+    source = UserDataJWTSource()
+
+    # Matching tenant passes
+    user = _extract_jwt_token(source, token, expected_tenant_id="tenant_a")
+    assert user.user_id == "user_a"
+
+    # Mismatched tenant raises PermissionError
+    with pytest.raises(
+        PermissionError,
+        match="Token tenant 'tenant_a' does not match requested tenant 'tenant_b'",
+    ):
+        _extract_jwt_token(source, token, expected_tenant_id="tenant_b")
+
+
+def test_claims_header_mode_rejects_cross_tenant_claim() -> None:
+    """Single header claims containing a tenant mismatching requested X-Tenant-ID must be rejected."""
+    source = UserDataSingleHeaderClaimsSource()
+    claims_json = '{"id": "user_1", "tenant_id": "tenant_a"}'
+
+    # Matching tenant passes
+    user = _extract_single_header_claims(
+        source, claims_json, expected_tenant_id="tenant_a"
+    )
+    assert user.user_id == "user_1"
+
+    # Mismatched tenant raises PermissionError
+    with pytest.raises(
+        PermissionError,
+        match="Claims tenant 'tenant_a' does not match requested tenant 'tenant_b'",
+    ):
+        _extract_single_header_claims(
+            source, claims_json, expected_tenant_id="tenant_b"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Lifespan Upstream Auth Gate in Non-Dev Environments
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_lifespan_enforces_trust_upstream_auth_in_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lifespan must refuse to start in production if USER_DATA_SOURCE is set and TRUST_UPSTREAM_AUTH is False."""
+    test_settings = get_settings().model_copy(
+        update={
+            "ENV": "prod",
+            "USER_DATA_SOURCE": UserDataHeaderSource(),
+            "TRUST_UPSTREAM_AUTH": False,
+        }
+    )
+    monkeypatch.setattr("main.settings", test_settings)
+
+    dummy_app = FastAPI()
+    with pytest.raises(RuntimeError, match="TRUST_UPSTREAM_AUTH must be set to True"):
+        async with lifespan(dummy_app):
+            pass
+

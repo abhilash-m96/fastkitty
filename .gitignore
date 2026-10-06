@@ -12,8 +12,12 @@ wheels/
 # VS code
 .vscode/
 
-# ENV
-.env
+# ENV & Secrets
+.env*
+!.env.example
+tenants_secrets*.json
+!tenants_secrets*.example.json
+
 
 # Agent & local workflow artifacts
 FEATURE_PLAN.md

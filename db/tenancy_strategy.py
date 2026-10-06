@@ -12,7 +12,7 @@ from typing import Any, Protocol, Iterable
 from dataclasses import dataclass
 
 from fastapi import FastAPI
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.ext.asyncio import (

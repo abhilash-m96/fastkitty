@@ -1,4 +1,5 @@
 import logging
+import re
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
@@ -13,17 +14,38 @@ from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
 logger = logging.getLogger(__name__)
 
+_TENANT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
 
 def get_tenant_id(
+    request: Request,
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
 ) -> str:
-    """Extract tenant ID from request header."""
-    if not x_tenant_id:
+    """Extract, validate, and normalize tenant ID from request header."""
+    tenant_headers = request.headers.getlist("x-tenant-id")
+    if len(tenant_headers) > 1:
+        logger.warning("Duplicate X-Tenant-ID headers detected: %s", tenant_headers)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Duplicate X-Tenant-ID headers detected",
+        )
+
+    if not x_tenant_id or not x_tenant_id.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tenant ID is required (X-Tenant-ID header missing)",
         )
-    return x_tenant_id.lower()
+
+    normalized_tenant_id = x_tenant_id.strip().lower()
+    if not _TENANT_ID_PATTERN.fullmatch(normalized_tenant_id):
+        logger.warning("Invalid Tenant ID format: '%s'", x_tenant_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tenant ID format. Must match ^[a-z0-9][a-z0-9_-]{0,62}$",
+        )
+
+    return normalized_tenant_id
+
 
 
 def get_tenancy_config_service(settings: Settings = Depends(get_settings)):
