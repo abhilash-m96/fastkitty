@@ -44,6 +44,26 @@ In FastKitty, **every discoverable tenant MUST have its database connection conf
 1. **Fail-Fast Startup Validation**: At application boot, FastKitty reads the active `TENANCY_DB_STRATEGY` and cross-validates every registered tenant's secrets. If any tenant is missing connection parameters, the server refuses to start — preventing runtime 500 errors on production traffic.
 2. **Seamless Strategy Upgrades**: Because every tenant already has its own secrets record, upgrading a tenant from a shared database to a dedicated database cluster requires updating only their secret entry, without altering code or schema configurations.
 
+> [!TIP]
+> **Connecting to Cloud Databases (AWS RDS, Supabase, Neon) with SSL**:
+> You do not need to assemble a long URI manually. Specify discrete fields and set `"ssl": "require"` (or `true`) directly:
+> ```json
+> {
+>   "netflix": {
+>     "tenant_id": "netflix",
+>     "database_config": {
+>       "host": "netflix-db.cluster-xyz.us-east-1.rds.amazonaws.com",
+>       "port": 5432,
+>       "username": "netflix_admin",
+>       "password": "secret_password",
+>       "database_name": "netflix_db",
+>       "ssl": "require"
+>     }
+>   }
+> }
+> ```
+> FastKitty will automatically compose the `postgresql+asyncpg` URI with `?ssl=require`.
+
 ---
 
 ## Which Strategy is Running for the Blog Posts Example?

@@ -127,6 +127,67 @@ USER_DATA_SOURCE='{"type": "claims", "header_name": "X-User-Claims", "user_id_fi
 
 ---
 
+## Nested Claims & Dot-Notation Path Resolution
+
+Identity providers frequently nest tenant and user attributes inside sub-objects (e.g., Auth0 `app_metadata`, Supabase `user_metadata`, Keycloak `realm_access`).
+
+FastKitty supports **dot notation** across all claim and field parameters (`tenant_id_claim`, `tenant_id_field`, `user_id_claim`, `user_email_claim`, `user_roles_claim`):
+
+```json
+{
+  "sub": "auth0|64f2b1a",
+  "email": "alice@example.com",
+  "app_metadata": {
+    "tenant_id": "tenant_1",
+    "tier": "enterprise"
+  }
+}
+```
+
+Simply reference the nested key path in your configuration:
+```bash
+USER_DATA_SOURCE='{"type": "jwt", "user_id_claim": "sub", "tenant_id_claim": "app_metadata.tenant_id", "require_tenant_claim": true}'
+```
+
+FastKitty automatically traverses nested JSON objects without requiring custom extractors or application code changes.
+
+---
+
+## Identity Provider Configuration Recipes
+
+Here are ready-to-use `.env` snippets for common identity providers:
+
+### 1. Auth0 / Okta
+```bash
+# Standard Auth0 Organization claim
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "user_roles_claim": "roles", "tenant_id_claim": "org_id", "require_tenant_claim": true}'
+
+# Nested in app_metadata
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "tenant_id_claim": "app_metadata.tenant_id", "require_tenant_claim": true}'
+```
+
+### 2. Supabase / GoTrue
+```bash
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "tenant_id_claim": "user_metadata.tenant_id", "require_tenant_claim": true}'
+```
+
+### 3. AWS Cognito User Pools
+```bash
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "user_roles_claim": "cognito:groups", "tenant_id_claim": "custom:tenant_id", "require_tenant_claim": true}'
+```
+
+### 4. WorkOS
+```bash
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "tenant_id_claim": "organization_id", "require_tenant_claim": true}'
+```
+
+### 5. API Gateway / Envoy / Kong Serialized JSON Claims Header
+```bash
+USER_DATA_SOURCE='{"type": "claims", "header_name": "X-User-Claims", "user_id_field": "id", "user_email_field": "email", "user_roles_field": "roles", "tenant_id_field": "tenant_id", "require_tenant_claim": true}'
+```
+
+---
+
 ## Zero-Effort Swagger / OpenAPI Documentation
 
 You never have to worry about documenting these dynamic headers manually in FastAPI. 
