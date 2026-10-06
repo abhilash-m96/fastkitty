@@ -109,11 +109,9 @@ def run_migrations_offline(context: object) -> None:
     elif strategy == "schema":
         if not tenants or not secrets_service:
             raise ValueError("Schema strategy requires tenant configuration")
-        shared_url = (
-            secrets_service.get_tenant_secrets(tenants[0].tenant_id)
-            .database_config
-            .database_uri
-        )
+        shared_url = secrets_service.get_tenant_secrets(
+            tenants[0].tenant_id
+        ).database_config.database_uri
         for tenant in tenants:
             secrets = secrets_service.get_tenant_secrets(tenant.tenant_id)
             schema_name = _normalize_schema_name(secrets.database_config)

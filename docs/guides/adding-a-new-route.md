@@ -29,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from models.base import Base, TenantScopedModel, TimestampedModel
 
+
 class Project(TenantScopedModel, TimestampedModel, Base):
     __tablename__ = "projects"
 
@@ -73,9 +74,11 @@ Create `schemas/projects.py` with Pydantic models:
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
+
 class ProjectCreate(BaseModel):
     name: str
     description: str | None = None
+
 
 class ProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -102,6 +105,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.projects import Project
 from schemas.projects import ProjectCreate
 
+
 class ProjectsService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -117,7 +121,9 @@ class ProjectsService:
         return project
 
     async def list_projects(self) -> Sequence[Project]:
-        result = await self.session.scalars(select(Project).order_by(Project.created_at.desc()))
+        result = await self.session.scalars(
+            select(Project).order_by(Project.created_at.desc())
+        )
         return result.all()
 ```
 
@@ -129,6 +135,7 @@ In `api/deps/db.py`, create a dependency factory that injects the current tenant
 
 ```python
 from services.projects_service import ProjectsService
+
 
 async def get_projects_service(
     session: AsyncSession = Depends(get_db_session),
@@ -153,8 +160,9 @@ from services.projects_service import ProjectsService
 
 router = APIRouter(
     tags=["Projects"],
-    dependencies=[Depends(require_active_tenant)], # Enforce active tenant
+    dependencies=[Depends(require_active_tenant)],  # Enforce active tenant
 )
+
 
 @router.post(
     "/projects",
@@ -167,6 +175,7 @@ async def create_project(
 ) -> ProjectResponse:
     project = await service.create_project(payload)
     return ProjectResponse.model_validate(project)
+
 
 @router.get(
     "/projects",

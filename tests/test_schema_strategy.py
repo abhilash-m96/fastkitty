@@ -110,9 +110,7 @@ def _patch_engine_factory(
     monkeypatch.setattr(
         "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
     )
-    monkeypatch.setattr(
-        "db.tenancy_strategy.event.listen", fake_listen
-    )
+    monkeypatch.setattr("db.tenancy_strategy.event.listen", fake_listen)
     return created_engines
 
 
@@ -129,7 +127,7 @@ async def test_schema_strategy_sets_search_path_on_begin(
         assert session.connection.statements == []
         session.trigger_after_begin()
         assert session.connection.statements == [
-            'SET LOCAL search_path TO "tenant_one", public'
+            'SET LOCAL search_path TO "tenant_one"'
         ]
 
     assert session.close_calls == 1
@@ -152,7 +150,7 @@ async def test_schema_strategy_search_path_reapplied_after_rollback(
         # Transaction 1 begins
         session.trigger_after_begin()
         assert session.connection.statements == [
-            'SET LOCAL search_path TO "tenant_one", public'
+            'SET LOCAL search_path TO "tenant_one"'
         ]
 
         # Application encounters an error and rolls back mid-request
@@ -162,8 +160,8 @@ async def test_schema_strategy_search_path_reapplied_after_rollback(
         # Transaction 2 begins on the same session/connection
         session.trigger_after_begin()
         assert session.connection.statements == [
-            'SET LOCAL search_path TO "tenant_one", public',
-            'SET LOCAL search_path TO "tenant_one", public',
+            'SET LOCAL search_path TO "tenant_one"',
+            'SET LOCAL search_path TO "tenant_one"',
         ]
 
     await strategy.teardown()
@@ -185,17 +183,13 @@ async def test_schema_strategy_pooled_connection_isolation_after_prior_tenant_co
     async with strategy.get_session(tenant_a) as raw_sess_a:
         sess_a = cast(FakeAsyncSession, raw_sess_a)
         sess_a.trigger_after_begin()
-        assert sess_a.connection.statements == [
-            'SET LOCAL search_path TO "schema_a", public'
-        ]
+        assert sess_a.connection.statements == ['SET LOCAL search_path TO "schema_a"']
 
     # Request 2: Tenant B gets session, rolls back mid-request, retries
     async with strategy.get_session(tenant_b) as raw_sess_b:
         sess_b = cast(FakeAsyncSession, raw_sess_b)
         sess_b.trigger_after_begin()
-        assert sess_b.connection.statements == [
-            'SET LOCAL search_path TO "schema_b", public'
-        ]
+        assert sess_b.connection.statements == ['SET LOCAL search_path TO "schema_b"']
 
         # Tenant B hits rollback (e.g. caught constraint error)
         await sess_b.rollback()
@@ -203,11 +197,11 @@ async def test_schema_strategy_pooled_connection_isolation_after_prior_tenant_co
         # Tenant B continues querying in a new transaction
         sess_b.trigger_after_begin()
         assert sess_b.connection.statements == [
-            'SET LOCAL search_path TO "schema_b", public',
-            'SET LOCAL search_path TO "schema_b", public',
+            'SET LOCAL search_path TO "schema_b"',
+            'SET LOCAL search_path TO "schema_b"',
         ]
         # Guarantee schema_a was never set on Tenant B's session
-        assert all('schema_a' not in stmt for stmt in sess_b.connection.statements)
+        assert all("schema_a" not in stmt for stmt in sess_b.connection.statements)
 
     await strategy.teardown()
 
@@ -229,10 +223,10 @@ async def test_schema_strategy_reuses_shared_engine_for_multiple_tenants(
             session_two.trigger_after_begin()
             assert len(created_engines) == 1
             assert session_one.connection.statements == [
-                'SET LOCAL search_path TO "tenant_one", public'
+                'SET LOCAL search_path TO "tenant_one"'
             ]
             assert session_two.connection.statements == [
-                'SET LOCAL search_path TO "tenant_two", public'
+                'SET LOCAL search_path TO "tenant_two"'
             ]
 
     await strategy.teardown()
@@ -306,14 +300,16 @@ async def test_schema_strategy_concurrent_requests_do_not_leak_search_path(
             session = cast(FakeAsyncSession, raw_session)
             session.trigger_after_begin()
             await asyncio.sleep(0)
-            observed_statements.append((tenant.tenant_id, list(session.connection.statements)))
+            observed_statements.append(
+                (tenant.tenant_id, list(session.connection.statements))
+            )
 
     await asyncio.gather(*(run_request(tenants[index % 2]) for index in range(20)))
 
     for tenant_id, statements in observed_statements:
         expected_schema = "tenant_one" if tenant_id == "tenant_1" else "tenant_two"
         assert statements == [
-            f'SET LOCAL search_path TO "{expected_schema}", public',
+            f'SET LOCAL search_path TO "{expected_schema}"',
         ]
 
     await strategy.teardown()

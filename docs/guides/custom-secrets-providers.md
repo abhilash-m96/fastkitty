@@ -14,6 +14,7 @@ Every secrets provider inherits from `BaseTenancySecretsProvider` in `config/ten
 from abc import ABC, abstractmethod
 from schemas.tenancy import TenantSecretConfig
 
+
 class BaseTenancySecretsProvider(ABC):
     @abstractmethod
     async def get_tenant_secret(self, tenant_id: str) -> TenantSecretConfig | None:
@@ -51,6 +52,7 @@ import json
 import boto3
 from schemas.tenancy import TenantSecretConfig
 from config.tenancy_secrets import BaseTenancySecretsProvider
+
 
 class AwsSecretsManagerProvider(BaseTenancySecretsProvider):
     def __init__(self, region_name: str = "us-east-1") -> None:

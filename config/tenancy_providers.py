@@ -62,7 +62,6 @@ class FileTenancyConfigProvider(TenancyConfigProvider):
         return TenantConfig(**tenant_config_data)
 
 
-
 class DBTenancyConfigProvider(TenancyConfigProvider):
     """Tenant configuration provider that reads from a DB."""
 
@@ -173,7 +172,6 @@ class HCVaultTenancySecretsProvider(TenancySecretsProvider):
             path = self._vault_kv_path.format(tenant_id=tenant_id)
         else:
             path = self._vault_kv_path
-
 
         data = self._client.read(path)
         if not data or "data" not in data:

@@ -37,6 +37,7 @@ def _mask_url(url: str) -> str:
     except Exception:
         return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
 
+
 # Configurable timeout (seconds) for waiting on idle_event before
 # force-disposing an evicted engine. Prevents dispose tasks from blocking forever
 # if a request hangs or a session is never closed.
@@ -114,6 +115,26 @@ _current_row_tenant_id: ContextVar[str | None] = ContextVar(
 )
 
 
+def _register_tenant_stamping(session: AsyncSession, tenant_id: str) -> None:
+    """Register a before_flush hook that stamps tenant_id on new TenantScopedModel instances.
+
+    Schema and database strategies isolate data at the schema/DB level, but
+    the models still declare a NOT NULL tenant_id column. This hook ensures
+    that rows inserted via these strategies are stamped with the active
+    tenant's ID before flush, preventing NOT NULL constraint violations
+    without requiring application code to pass tenant_id explicitly.
+    """
+
+    def _stamp(sess: Any, *_: object) -> None:
+        for instance in sess.new:
+            if isinstance(instance, TenantScopedModel) and not getattr(
+                instance, "tenant_id", None
+            ):
+                instance.tenant_id = tenant_id
+
+    event.listen(session.sync_session, "before_flush", _stamp)
+
+
 class DatabaseTenancyStrategy(TenancyStrategy):
     strategy_name: TenancyDBStrategy = "database"
 
@@ -132,12 +153,8 @@ class DatabaseTenancyStrategy(TenancyStrategy):
     ) -> AsyncGenerator[AsyncSession, None]:
         db_config = tenant_db_context.db_config
         entry = await self._acquire_entry(db_config)
-        # session creation can fail (e.g. pool exhausted, driver error).
-        # _release_entry must run regardless — it decrements active_sessions and
-        # potentially sets idle_event, unblocking any pending dispose task.
-        # The outer try/finally guarantees _release_entry even if session_factory()
-        # or the caller's code raises before yielding.
         session = entry.session_factory()
+        _register_tenant_stamping(session, tenant_db_context.tenant_id)
         try:
             yield session
         except Exception:
@@ -176,13 +193,17 @@ class DatabaseTenancyStrategy(TenancyStrategy):
         async with self._registry_lock:
             entry = self._engines.get(db_uri)
             if entry is None:
-                logger.info("Allocating new database engine pool for: %s", _mask_url(db_uri))
+                logger.info(
+                    "Allocating new database engine pool for: %s", _mask_url(db_uri)
+                )
                 entry = self._create_entry(db_uri=db_uri, db_config=db_config)
                 self._engines[db_uri] = entry
             else:
                 self._validate_pool_config(entry=entry, db_config=db_config)
                 self._engines.move_to_end(db_uri)
-                logger.debug("Reusing cached database engine pool for: %s", _mask_url(db_uri))
+                logger.debug(
+                    "Reusing cached database engine pool for: %s", _mask_url(db_uri)
+                )
 
             entry.active_sessions += 1
             if entry.idle_event is not None:
@@ -401,13 +422,12 @@ class SchemaTenancyStrategy(_SharedEngineTenancyStrategy):
             transaction: object,
             connection: Any,
         ) -> None:
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path TO "{schema_name}", public'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema_name}"')
 
         event.listen(session.sync_session, "after_begin", _set_tenant_search_path)
+        _register_tenant_stamping(session, tenant_db_context.tenant_id)
         logger.debug(
-            "Configured PostgreSQL search_path to '%s', public for tenant '%s'",
+            "Configured PostgreSQL search_path to '%s' for tenant '%s'",
             schema_name,
             tenant_db_context.tenant_id,
         )
@@ -550,16 +570,29 @@ class _ExecuteState(Protocol):
     is_select: bool
     is_update: bool
     is_delete: bool
+    is_insert: bool
     is_column_load: bool
     is_relationship_load: bool
     statement: Any
+    bind_mapper: Any
 
 
 def _apply_row_tenant_scope(execute_state: _ExecuteState) -> None:
+    # Reject ORM-level bulk inserts on tenant-scoped models.
+    # The with_loader_criteria hook can filter select, update, and delete,
+    # but cannot modify the values of an insert statement. A tenant executing
+    # insert(Model).values(tenant_id="other", ...) would bypass row isolation.
+    # Standard session.add() is required and is stamped via _stamp_row_tenant_writes.
+    if getattr(execute_state, "is_insert", False):
+        mapper = getattr(execute_state, "bind_mapper", None)
+        if mapper is not None and issubclass(mapper.class_, TenantScopedModel):
+            raise ValueError(
+                "Row strategy: bulk INSERT on tenant-scoped models is not allowed; "
+                "use session.add() so tenant_id is stamped"
+            )
+
     if not (
-        execute_state.is_select
-        or execute_state.is_update
-        or execute_state.is_delete
+        execute_state.is_select or execute_state.is_update or execute_state.is_delete
     ):
         return
     if execute_state.is_column_load:

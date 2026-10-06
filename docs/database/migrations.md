@@ -81,6 +81,7 @@ To register a new SQLAlchemy model for migrations:
    from sqlalchemy.orm import Mapped, mapped_column
    from models.base import Base, TenantScopedModel, TimestampedModel
 
+
    class Order(TenantScopedModel, TimestampedModel, Base):
        __tablename__ = "orders"
        id: Mapped[int] = mapped_column(Integer, primary_key=True)

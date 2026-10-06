@@ -31,10 +31,12 @@ def test_setup_telemetry_default_console_mode():
         APP_NAME="custom-fastkitty",
     )
 
-    with patch("logfire.configure") as mock_configure, \
-         patch("logfire.instrument_fastapi") as mock_fastapi, \
-         patch("logfire.instrument_pydantic") as mock_pydantic, \
-         patch("logfire.instrument_sqlalchemy") as mock_sa:
+    with (
+        patch("logfire.configure") as mock_configure,
+        patch("logfire.instrument_fastapi") as mock_fastapi,
+        patch("logfire.instrument_pydantic") as mock_pydantic,
+        patch("logfire.instrument_sqlalchemy") as mock_sa,
+    ):
         setup_telemetry(app, settings)
 
         mock_configure.assert_called_once_with(
@@ -60,10 +62,12 @@ def test_setup_telemetry_custom_environment():
         LOGFIRE_SERVICE_NAME="prod-service",
     )
 
-    with patch("logfire.configure") as mock_configure, \
-         patch("logfire.instrument_fastapi"), \
-         patch("logfire.instrument_pydantic"), \
-         patch("logfire.instrument_sqlalchemy"):
+    with (
+        patch("logfire.configure") as mock_configure,
+        patch("logfire.instrument_fastapi"),
+        patch("logfire.instrument_pydantic"),
+        patch("logfire.instrument_sqlalchemy"),
+    ):
         setup_telemetry(app, settings)
 
         mock_configure.assert_called_once_with(

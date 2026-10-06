@@ -8,7 +8,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Integer, String, create_engine, delete, event as sa_event, select, update
+from sqlalchemy import (
+    Integer,
+    String,
+    create_engine,
+    delete,
+    event as sa_event,
+    select,
+    update,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from api.deps.db import get_db
@@ -42,6 +50,7 @@ from schemas.tenancy import DatabaseConfig, FeatureConfig, TenantConfig, TenantS
 # ---------------------------------------------------------------------------
 # Blocker 1 & 2: URL Password Masking in Logs and Exceptions
 # ---------------------------------------------------------------------------
+
 
 def test_mask_url_masks_password() -> None:
     uri = "postgresql+asyncpg://app_user:SuperSecretPw123@localhost:5432/my_tenant_db"
@@ -205,6 +214,7 @@ async def test_database_strategy_masks_password_in_allocation_log(
 # Blocker 3: Inactive Tenant Guard is Fail-Closed (Not Opt-In)
 # ---------------------------------------------------------------------------
 
+
 def test_get_db_rejects_inactive_tenant_without_router_dependency() -> None:
     """A route depending ONLY on get_db must reject inactive tenants before opening a DB session."""
     app = FastAPI()
@@ -329,9 +339,7 @@ def test_get_feature_config_rejects_inactive_tenant() -> None:
         return {"ok": True}
 
     with TestClient(app) as client:
-        response = client.get(
-            "/feature-route", headers={"X-Tenant-ID": "inactive_co"}
-        )
+        response = client.get("/feature-route", headers={"X-Tenant-ID": "inactive_co"})
         assert response.status_code == 403
         assert "is not active" in response.json()["detail"]
 
@@ -339,6 +347,7 @@ def test_get_feature_config_rejects_inactive_tenant() -> None:
 # ---------------------------------------------------------------------------
 # Blocker 4: Row Strategy ORM Bulk Update & Delete Scoping
 # ---------------------------------------------------------------------------
+
 
 def test_row_strategy_scopes_orm_bulk_update_statement() -> None:
     """Verifies update(Model) is scoped with WHERE tenant_id = current_tenant."""
@@ -506,6 +515,7 @@ def test_row_strategy_e2e_bulk_update_and_delete_isolation_with_sqlite() -> None
 # Blocker 1 & 3: Masking on Engine Disposal Warnings
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_database_strategy_masks_password_in_disposal_timeout_warning(
     caplog: pytest.LogCaptureFixture,
@@ -550,6 +560,7 @@ async def test_database_strategy_masks_password_in_disposal_timeout_warning(
 # ---------------------------------------------------------------------------
 # Tenant ID Header Validation & Anti-Smuggling Tests
 # ---------------------------------------------------------------------------
+
 
 def test_duplicate_tenant_id_headers_rejected() -> None:
     """Duplicate X-Tenant-ID headers must be rejected with 400 Bad Request to prevent smuggling."""
@@ -621,6 +632,7 @@ def test_valid_tenant_id_accepted_and_normalized() -> None:
 # Provider Defense-in-Depth Tenant ID Validation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "invalid_id",
     [
@@ -654,6 +666,7 @@ def test_validate_tenant_id_helper_accepts_valid() -> None:
 # Public Health Check Route
 # ---------------------------------------------------------------------------
 
+
 def test_public_health_endpoint_accessible_without_auth_or_tenant() -> None:
     """GET /v1/health must be publicly accessible without X-Tenant-ID or auth tokens."""
     from main import app
@@ -667,6 +680,7 @@ def test_public_health_endpoint_accessible_without_auth_or_tenant() -> None:
 # ---------------------------------------------------------------------------
 # Upstream Auth Hardening (JWT alg: none and Cross-Tenant Claim Mismatch)
 # ---------------------------------------------------------------------------
+
 
 def test_jwt_mode_rejects_alg_none() -> None:
     """JWT tokens specifying alg='none' must be rejected with 401 Unauthorized."""
@@ -741,6 +755,7 @@ def test_claims_header_mode_rejects_cross_tenant_claim() -> None:
 # Lifespan Upstream Auth Gate in Non-Dev Environments
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_lifespan_enforces_trust_upstream_auth_in_prod(
     monkeypatch: pytest.MonkeyPatch,
@@ -759,4 +774,3 @@ async def test_lifespan_enforces_trust_upstream_auth_in_prod(
     with pytest.raises(RuntimeError, match="TRUST_UPSTREAM_AUTH must be set to True"):
         async with lifespan(dummy_app):
             pass
-

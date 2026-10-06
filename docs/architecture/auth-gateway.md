@@ -147,6 +147,7 @@ from schemas.user_data import UserData
 
 router = APIRouter()
 
+
 @router.get("/profile")
 async def get_profile(user_data: UserData = Depends(get_user_data)):
     return {

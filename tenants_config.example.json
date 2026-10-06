@@ -1,0 +1,29 @@
+{
+    "tenant_1": {
+        "tenant_id": "tenant_1",
+        "display_name": "Tenant One",
+        "is_active": true,
+        "features": {
+            "greet": {
+                "message": "Hello, welcome '{tenant_name}'!"
+            },
+            "blog_posts": {
+                "max_daily_posts": 1
+            }
+        }
+
+    },
+    "tenant_2": {
+        "tenant_id": "tenant_2",
+        "display_name": "Tenant Two",
+        "is_active": true,
+        "features": {
+            "greet": {
+                "message": "Hi '{tenant_name}', welcome!"
+            },
+            "blog_posts": {
+                "max_daily_posts": 5
+            }
+        }
+    }
+}

@@ -49,6 +49,7 @@ from main import app
 from api.deps.tenancy import get_tenant_config
 from schemas.tenancy import TenantConfig
 
+
 @pytest.mark.asyncio
 async def test_custom_tenant_behavior():
     mock_tenant = TenantConfig(

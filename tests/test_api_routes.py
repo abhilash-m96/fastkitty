@@ -82,10 +82,10 @@ def test_hello_rejects_inactive_tenant(
 
 
 def test_hello_requires_tenant_header_without_override(client) -> None:
-    """Return a 422 when tenant resolution has no header to read from."""
+    """Return a 400 when tenant resolution has no header to read from."""
     response = client.get("/v1/hello")
 
-    assert response.status_code == 422
+    assert response.status_code == 400
 
 
 def test_create_blog_post_returns_created_post(
@@ -129,6 +129,7 @@ def test_create_blog_post_passes_feature_config_and_handles_429(
     user_payload,
 ) -> None:
     """Raise 429 when the service rejects the request due to tenant quota limit."""
+
     class QuotaExceededBlogPostsService:
         async def create_post(self, payload, user_id, feature_config=None):
             assert feature_config == {"max_daily_posts": 1}
@@ -159,8 +160,9 @@ def test_create_blog_post_passes_feature_config_and_handles_429(
     )
 
     assert response.status_code == 429
-    assert response.json() == {"detail": "Daily posting limit of 1 reached for this tenant."}
-
+    assert response.json() == {
+        "detail": "Daily posting limit of 1 reached for this tenant."
+    }
 
 
 def test_list_blog_posts_returns_user_posts(

@@ -220,7 +220,9 @@ def test_dynamic_signature_and_openapi_generation() -> None:
         return user
 
     schema = app.openapi()
-    hdr_params = {p["name"]: p for p in schema["paths"]["/header-test"]["get"]["parameters"]}
+    hdr_params = {
+        p["name"]: p for p in schema["paths"]["/header-test"]["get"]["parameters"]
+    }
     assert "X-User-ID" in hdr_params
     assert hdr_params["X-User-ID"]["required"] is True
     assert "X-User-Email" in hdr_params
@@ -232,5 +234,7 @@ def test_dynamic_signature_and_openapi_generation() -> None:
     jwt_params = [p["name"] for p in schema["paths"]["/jwt-test"]["get"]["parameters"]]
     assert jwt_params == ["Authorization"]
 
-    claims_params = [p["name"] for p in schema["paths"]["/claims-test"]["get"]["parameters"]]
+    claims_params = [
+        p["name"] for p in schema["paths"]["/claims-test"]["get"]["parameters"]
+    ]
     assert claims_params == ["X-User-Claims"]

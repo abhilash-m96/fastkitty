@@ -36,10 +36,9 @@ def _is_literal_field(field_info) -> bool:
 
 
 def _is_optional(annotation) -> bool:
-    return (
-        get_origin(annotation) in (Union, types.UnionType)
-        and type(None) in get_args(annotation)
-    )
+    return get_origin(annotation) in (Union, types.UnionType) and type(
+        None
+    ) in get_args(annotation)
 
 
 def _is_field_active(src, field_name: str, field_info) -> bool:
@@ -80,12 +79,23 @@ def _extract_jwt_token(
     token: str,
     expected_tenant_id: str | None = None,
 ) -> UserData:
+    """Extract and parse claims from a JWT token without cryptographic verification.
+
+    IMPORTANT ARCHITECTURAL SECURITY NOTE:
+    FastKitty services operate behind an API Gateway (or BFF) on a trusted internal
+    network where authentication (signature verification, expiration, issuer checks)
+    is handled upstream. The service extracts identity claims for tenant isolation and
+    logging without the CPU overhead of redundant re-verification. If the service is
+    ever exposed directly to public internet traffic without an upstream gateway,
+    cryptographic signature verification MUST be enforced.
+    """
     try:
         unverified_header = jwt.get_unverified_header(token)
     except PyJWTError as exc:
         raise ValueError("Invalid JWT token") from exc
 
-    if unverified_header.get("alg", "").lower() == "none":
+    alg_header = unverified_header.get("alg")
+    if not isinstance(alg_header, str) or alg_header.lower() == "none":
         raise ValueError("JWT 'none' algorithm is forbidden")
 
     try:
@@ -170,7 +180,6 @@ def _extract_single_header_claims(
         result["roles"] = _parse_roles(result["roles"], ",")
 
     return UserData(**result)
-
 
 
 async def _get_user_data_unconfigured() -> UserData | None:
@@ -377,7 +386,6 @@ def _build_get_user_data(
         )
         _claims_handler.__name__ = "get_user_data"
         return _claims_handler
-
 
     raise RuntimeError(f"Unsupported USER_DATA_SOURCE type: {src!r}")
 

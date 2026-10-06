@@ -12,9 +12,7 @@ from config.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def enrich_span_with_tenant(
-    tenant_id: str, display_name: str | None = None
-) -> None:
+def enrich_span_with_tenant(tenant_id: str, display_name: str | None = None) -> None:
     """Enrich the current active OpenTelemetry / Logfire span with tenant context."""
     span = trace.get_current_span()
     if span.is_recording():

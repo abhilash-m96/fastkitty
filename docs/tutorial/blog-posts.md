@@ -95,6 +95,7 @@ router = APIRouter(
     dependencies=[Depends(require_active_tenant)],  # Enforce active tenant router-wide
 )
 
+
 @router.post(
     "/blog-posts",
     name="blog_posts",  # Endpoint name matches the feature key in tenants_config.json
@@ -103,7 +104,9 @@ router = APIRouter(
 )
 async def create_blog_post(
     payload: Annotated[BlogPostCreate, Body()],
-    feature_config: FeatureConfig | None = Depends(get_feature_config("blog_posts")),  # Scoped to route name
+    feature_config: FeatureConfig | None = Depends(
+        get_feature_config("blog_posts")
+    ),  # Scoped to route name
     service: BlogPostsService = Depends(get_blog_posts_service),
     user_data: UserData = Depends(get_user_data),
 ) -> BlogPostResponse:
@@ -155,6 +158,7 @@ from models.posts import BlogPost
 from schemas.posts import BlogPostCreate
 from schemas.tenancy import FeatureConfig
 
+
 class BlogPostsService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -166,7 +170,9 @@ class BlogPostsService:
         feature_config: FeatureConfig | None = None,
     ) -> BlogPost:
         # 1. Read quota from feature config (defaulting to 1 if not configured)
-        max_daily_posts = feature_config.get("max_daily_posts", 1) if feature_config else 1
+        max_daily_posts = (
+            feature_config.get("max_daily_posts", 1) if feature_config else 1
+        )
 
         # 2. If max_daily_posts is not None, enforce the limit
         if max_daily_posts is not None:

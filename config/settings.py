@@ -163,7 +163,6 @@ class Settings(BaseSettings):
         "Must be True when USER_DATA_SOURCE is configured and ENV != 'dev'.",
     )
 
-
     # Logfire / Telemetry Settings
     LOGFIRE_ENABLED: bool = Field(
         default=True,
