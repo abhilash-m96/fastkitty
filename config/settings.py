@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 import json
 from typing import Annotated, ClassVar, Literal, Union
 
@@ -20,7 +20,7 @@ class TenancyConfigDBConnection(DatabaseConfig):
 class HCConsulTenancyConfigConnection(BaseModel):
     type: Literal["hc_consul"] = "hc_consul"
     url: str
-    token: str | None = Field(default=None)
+    token: SecretStr | None = Field(default=None)
     consul_prefix: str = Field(default="tenants/config/")
 
 
@@ -50,7 +50,7 @@ class TenancySecretsGCPConnection(BaseModel):
 class HCVaultTenancySecretsConnection(BaseModel):
     type: Literal["hc_vault"] = "hc_vault"
     url: str
-    token: str
+    token: SecretStr
     vault_kv_path: str = Field(default="secret/data/tenants/{tenant_id}")
 
 

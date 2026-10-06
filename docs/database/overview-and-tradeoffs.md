@@ -72,3 +72,11 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
   Not all database engines support schemas (e.g. MySQL and SQLite lack true schema namespaces; in MySQL, `SCHEMA` is synonymous with `DATABASE`). Additionally, running schema migrations and DDL upgrades across hundreds of tenant schemas can become operationally complex and slow.
 * **Resource & Infrastructure Costs (`database` strategy)**:  
   Dedicated physical or logical databases incur the highest infrastructure costs and connection pool resource consumption (managed via LRU cache). Tenants can be separate physical/managed database servers OR separate logical databases within the same server.
+* **Concurrent Quota Race Conditions**:  
+  The tutorial quota check (`today_posts >= max_daily_posts`) performs an application-level count check within the transaction. Under high concurrent write requests from the same user or tenant, concurrent requests can slip past the count before writes commit. For mission-critical strict quota enforcement, use atomic Redis counters, token bucket algorithms, or database-level row locking (`SELECT FOR UPDATE`).
+* **Unpaginated List Endpoints**:  
+  The reference `GET /v1/blog-posts` endpoint returns all records matching author criteria without pagination. Production services with large datasets should add cursor-based or offset-based pagination (`limit`/`offset`).
+* **External Provider Timeouts**:  
+  HashiCorp Consul and Vault providers use a default 10.0-second HTTP request timeout to prevent hanging worker threads. Production architectures should leverage local agent caches (e.g., Consul Agent or Vault Agent) or resilient network retries.
+* **Unverified JWT Parsing**:  
+  JWT mode decodes payload claims without cryptographic signature verification (relying on your upstream gateway/BFF). Additionally, tenant claim enforcement is opt-in via `REQUIRE_TENANT_CLAIM=true`.

@@ -40,7 +40,7 @@ class BlogPostsService:
         user_id: str,
         feature_config: FeatureConfig | None = None,
     ) -> BlogPost:
-        logger.info("Creating blog post '%s' for author '%s'", payload.title, user_id)
+        logger.info("Creating blog post for author '%s'", user_id)
 
         max_daily_posts = (
             feature_config.get("max_daily_posts") if feature_config else None

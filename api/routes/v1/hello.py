@@ -22,11 +22,7 @@ async def hello(
     tenant_name = tenant_config.display_name
     if not message:
         message = f"Hello {tenant_name}!"
-    try:
-        message = message.format(
-            tenant_name=tenant_config.display_name,
-        )
-    except (KeyError, ValueError):
-        pass
+    if "{tenant_name}" in message:
+        message = message.replace("{tenant_name}", tenant_config.display_name)
 
     return {"message": message}

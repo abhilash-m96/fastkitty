@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from fastapi import FastAPI, Request
 import logfire
 from opentelemetry import trace
@@ -34,16 +35,19 @@ def enrich_span_with_user(
         if user_id:
             span.set_attribute("user.id", user_id)
             span.set_attribute("user_id", user_id)
-        if email:
-            span.set_attribute("user.email", email)
+        # Note: email is omitted from telemetry spans to prevent PII leakage
         if roles:
             span.set_attribute("user.roles", roles)
+
+
+_SAFE_HEADER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
 
 
 class LogfireTenantMiddleware(BaseHTTPMiddleware):
     """
     Middleware that captures tenant and user headers from incoming HTTP requests
     and attaches them as indexed attributes on the root Logfire/OTel span.
+    Only attaches sanitized identifiers matching safe regex to prevent injecting arbitrary payloads.
     """
 
     async def dispatch(
@@ -54,14 +58,16 @@ class LogfireTenantMiddleware(BaseHTTPMiddleware):
             tenant_id = request.headers.get("x-tenant-id")
             if tenant_id:
                 clean_tenant = tenant_id.strip().lower()
-                span.set_attribute("tenant.id", clean_tenant)
-                span.set_attribute("tenant_id", clean_tenant)
+                if _SAFE_HEADER_PATTERN.fullmatch(clean_tenant):
+                    span.set_attribute("tenant.id", clean_tenant)
+                    span.set_attribute("tenant_id", clean_tenant)
 
             user_id = request.headers.get("x-user-id")
             if user_id:
                 clean_user = user_id.strip()
-                span.set_attribute("user.id", clean_user)
-                span.set_attribute("user_id", clean_user)
+                if _SAFE_HEADER_PATTERN.fullmatch(clean_user):
+                    span.set_attribute("user.id", clean_user)
+                    span.set_attribute("user_id", clean_user)
 
         response = await call_next(request)
         return response
@@ -69,7 +75,7 @@ class LogfireTenantMiddleware(BaseHTTPMiddleware):
 
 def setup_telemetry(app: FastAPI, settings: Settings) -> None:
     """
-    Initialize Pydantic Logfire and instrument FastAPI, SQLAlchemy, and Pydantic.
+    Initialize Pydantic Logfire and instrument FastAPI and SQLAlchemy.
 
     By default:
     - `LOGFIRE_SEND_TO_LOGFIRE=False`: Logs and spans are rendered in the console with zero network traffic.
@@ -104,11 +110,8 @@ def setup_telemetry(app: FastAPI, settings: Settings) -> None:
     except Exception as e:
         logger.warning("Failed to instrument FastAPI with Logfire: %s", e)
 
-    # Instrument Pydantic schema validation
-    try:
-        logfire.instrument_pydantic()
-    except Exception as e:
-        logger.warning("Failed to instrument Pydantic with Logfire: %s", e)
+    # Note: logfire.instrument_pydantic() is intentionally NOT called to prevent
+    # DatabaseConfig and TenantSecrets plaintext passwords from being recorded in spans.
 
     # Instrument SQLAlchemy queries globally (across all tenant engines)
     try:

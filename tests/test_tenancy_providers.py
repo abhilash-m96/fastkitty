@@ -11,6 +11,7 @@ from config.tenancy_providers import (
     FileTenancySecretsProvider,
     HCConsulTenancyConfigProvider,
     HCVaultTenancySecretsProvider,
+    TenantNotFoundError,
 )
 
 
@@ -150,7 +151,7 @@ def test_consul_provider_raises_for_missing_value(
     )
 
     with pytest.raises(
-        ValueError, match="Tenant 'tenant_1' not found or not configured"
+        TenantNotFoundError, match="Tenant 'tenant_1' not found or not configured"
     ):
         provider.get_config("tenant_1")
 
@@ -247,6 +248,7 @@ def test_vault_provider_raises_for_missing_data(
     )
 
     with pytest.raises(
-        ValueError, match="Tenant 'tenant_1' secrets not found or not configured"
+        TenantNotFoundError,
+        match="Tenant 'tenant_1' secrets not found or not configured",
     ):
         provider.get_secrets("tenant_1")

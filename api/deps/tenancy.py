@@ -4,6 +4,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
 from config.telemetry import enrich_span_with_tenant
+from config.tenancy_providers import TenantNotFoundError
 from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
@@ -66,7 +67,7 @@ def get_tenant_config(
     """
     try:
         config = tenancy_config_service.get_tenant_config(tenant_id=tenant_id)
-    except ValueError:
+    except TenantNotFoundError:
         logger.warning("Tenant %r not found or not configured", tenant_id[:64])
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -78,6 +79,17 @@ def get_tenant_config(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tenant '{tenant_id}' not found or not configured",
+        )
+
+    if config.tenant_id != tenant_id:
+        logger.error(
+            "Tenant configuration ID mismatch: requested '%s', config contains '%s'",
+            tenant_id,
+            config.tenant_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant configuration ID mismatch",
         )
 
     logger.debug(
@@ -125,18 +137,37 @@ def get_tenant_secrets(
         secrets: TenantSecrets = tenancy_secrets_service.get_tenant_secrets(
             tenant_id=tenant_config.tenant_id
         )
-    except ValueError:
-        logger.warning("Secrets for tenant %r not found", tenant_config.tenant_id[:64])
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Secrets for tenant '{tenant_config.tenant_id}' not found",
+    except TenantNotFoundError:
+        logger.error(
+            "Secrets for active tenant %r not found or not configured",
+            tenant_config.tenant_id[:64],
         )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Secrets for active tenant '{tenant_config.tenant_id}' are not configured",
+        )
+
     if not secrets:
-        logger.warning("Secrets for tenant %r not found", tenant_config.tenant_id[:64])
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Secrets for tenant '{tenant_config.tenant_id}' not found",
+        logger.error(
+            "Secrets for active tenant %r not found or not configured",
+            tenant_config.tenant_id[:64],
         )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Secrets for active tenant '{tenant_config.tenant_id}' are not configured",
+        )
+
+    if secrets.tenant_id != tenant_config.tenant_id:
+        logger.error(
+            "Tenant secrets ID mismatch: config has '%s', secrets has '%s'",
+            tenant_config.tenant_id,
+            secrets.tenant_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant secrets ID mismatch",
+        )
+
     return secrets
 
 

@@ -4,6 +4,8 @@ import pytest
 
 from typing import cast
 
+from pydantic import SecretStr
+
 from config.settings import (
     HCConsulTenancyConfigConnection,
     HCVaultTenancySecretsConnection,
@@ -57,7 +59,7 @@ def test_config_provider_factory_creates_consul_provider(
 
     assert isinstance(provider, FakeConsulProvider)
     assert provider.url == "https://consul.example.com"
-    assert provider.token == "token"
+    assert provider.token == SecretStr("token")
     assert provider.consul_prefix == "tenants/config/"
 
 
@@ -109,7 +111,7 @@ def test_secrets_provider_factory_creates_vault_provider(
 
     assert isinstance(provider, FakeVaultProvider)
     assert provider.url == "https://vault.example.com"
-    assert provider.token == "token"
+    assert provider.token == SecretStr("token")
     assert provider.vault_kv_path == "secret/data/tenants/{tenant_id}"
 
 
