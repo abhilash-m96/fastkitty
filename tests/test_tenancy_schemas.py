@@ -109,3 +109,91 @@ def test_database_config_preserves_schema_name() -> None:
     )
 
     assert config.schema_name == "tenant_one"
+
+
+def test_database_config_appends_ssl_string_to_constructed_uri() -> None:
+    """Append ?ssl=<mode> when ssl is specified as a string."""
+    config = DatabaseConfig(
+        host="rds.example.com",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        ssl="require",
+    )
+
+    assert (
+        config.database_uri
+        == "postgresql+asyncpg://db_user:db_password@rds.example.com:5432/tenant_db?ssl=require"
+    )
+
+
+def test_database_config_appends_ssl_bool_true_as_require() -> None:
+    """When ssl=True, append ?ssl=require."""
+    config = DatabaseConfig(
+        host="rds.example.com",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        ssl=True,
+    )
+
+    assert (
+        config.database_uri
+        == "postgresql+asyncpg://db_user:db_password@rds.example.com:5432/tenant_db?ssl=require"
+    )
+
+
+def test_database_config_appends_ssl_to_pre_supplied_uri() -> None:
+    """When a URI is supplied without ssl, append ?ssl=<mode>."""
+    config = DatabaseConfig(
+        host="rds.example.com",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        database_uri="postgresql://user:pass@rds.example.com:5432/tenant_db",
+        ssl="require",
+    )
+
+    assert (
+        config.database_uri
+        == "postgresql+asyncpg://user:pass@rds.example.com:5432/tenant_db?ssl=require"
+    )
+
+
+def test_database_config_appends_ssl_with_ampersand_when_query_params_exist() -> None:
+    """When a URI has existing query params, append &ssl=<mode>."""
+    config = DatabaseConfig(
+        host="rds.example.com",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        database_uri="postgresql://user:pass@rds.example.com:5432/tenant_db?server_settings=foo",
+        ssl="require",
+    )
+
+    assert (
+        config.database_uri
+        == "postgresql+asyncpg://user:pass@rds.example.com:5432/tenant_db?server_settings=foo&ssl=require"
+    )
+
+
+def test_database_config_does_not_duplicate_existing_ssl_param() -> None:
+    """Do not duplicate ssl query parameter if already present in database_uri."""
+    config = DatabaseConfig(
+        host="rds.example.com",
+        port=5432,
+        username="db_user",
+        password="db_password",
+        database_name="tenant_db",
+        database_uri="postgresql://user:pass@rds.example.com:5432/tenant_db?ssl=require",
+        ssl="require",
+    )
+
+    assert (
+        config.database_uri
+        == "postgresql+asyncpg://user:pass@rds.example.com:5432/tenant_db?ssl=require"
+    )

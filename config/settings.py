@@ -87,6 +87,10 @@ class UserDataJWTSource(BaseModel):
     user_id_claim: str = Field(default="sub")
     user_email_claim: str | None = Field(default="email")
     user_roles_claim: str | None = Field(default="roles")
+    tenant_id_claim: str | None = Field(
+        default=None,
+        description="JWT claim key holding the tenant ID (e.g. 'tenant_id', 'org_id'). Falls back to 'tenant_id', 'tid', or 'tenant' if omitted.",
+    )
     require_tenant_claim: bool = Field(
         default=False,
         description="Whether to reject JWT tokens that lack a tenant claim when X-Tenant-ID is present",
@@ -105,6 +109,10 @@ class UserDataSingleHeaderClaimsSource(BaseModel):
     user_id_field: str = Field(default="id")
     user_email_field: str | None = Field(default="email")
     user_roles_field: str | None = Field(default="roles")
+    tenant_id_field: str | None = Field(
+        default=None,
+        description="Field key inside claims payload holding the tenant ID (e.g. 'tenant_id', 'org_id'). Falls back to 'tenant_id', 'tid', or 'tenant' if omitted.",
+    )
     require_tenant_claim: bool = Field(
         default=False,
         description="Whether to reject claims headers that lack a tenant claim when X-Tenant-ID is present",

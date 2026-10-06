@@ -1,5 +1,6 @@
 """Security hardening and tenancy isolation regression tests."""
 
+import json
 import logging
 from types import SimpleNamespace
 from typing import Any, cast
@@ -843,6 +844,36 @@ def test_jwt_mode_rejects_missing_tenant_claim_when_required() -> None:
         _extract_jwt_token(source, token, expected_tenant_id="tenant_a")
 
 
+def test_jwt_mode_supports_custom_tenant_id_claim() -> None:
+    """Custom tenant_id_claim (e.g. 'org_id') must be used to validate tenant identity."""
+    source = UserDataJWTSource(tenant_id_claim="org_id", require_tenant_claim=True)
+
+    # 1. Matching claim succeeds
+    token_valid = jwt.encode(
+        {"sub": "user_1", "org_id": "tenant_a"}, "secret", algorithm="HS256"
+    )
+    user = _extract_jwt_token(source, token_valid, expected_tenant_id="tenant_a")
+    assert user.user_id == "user_1"
+
+    # 2. Mismatched claim raises PermissionError
+    token_mismatch = jwt.encode(
+        {"sub": "user_1", "org_id": "tenant_b"}, "secret", algorithm="HS256"
+    )
+    with pytest.raises(
+        PermissionError,
+        match="Token tenant 'tenant_b' does not match requested tenant 'tenant_a'",
+    ):
+        _extract_jwt_token(source, token_mismatch, expected_tenant_id="tenant_a")
+
+    # 3. Missing custom claim raises PermissionError referencing the custom claim name
+    token_missing = jwt.encode({"sub": "user_1"}, "secret", algorithm="HS256")
+    with pytest.raises(
+        PermissionError,
+        match="Token is missing required 'org_id' matching requested tenant 'tenant_a'",
+    ):
+        _extract_jwt_token(source, token_missing, expected_tenant_id="tenant_a")
+
+
 def test_claims_mode_rejects_missing_tenant_claim_when_required() -> None:
     """When require_tenant_claim=True, claims header without tenant claim must be rejected."""
     source = UserDataSingleHeaderClaimsSource(require_tenant_claim=True)
@@ -854,6 +885,40 @@ def test_claims_mode_rejects_missing_tenant_claim_when_required() -> None:
     ):
         _extract_single_header_claims(
             source, claims_json, expected_tenant_id="tenant_a"
+        )
+
+
+def test_claims_mode_supports_custom_tenant_id_field() -> None:
+    """Custom tenant_id_field (e.g. 'organization') must be used to validate tenant identity."""
+    source = UserDataSingleHeaderClaimsSource(
+        tenant_id_field="organization", require_tenant_claim=True
+    )
+
+    # 1. Matching field succeeds
+    claims_valid = json.dumps({"id": "user_1", "organization": "tenant_a"})
+    user = _extract_single_header_claims(
+        source, claims_valid, expected_tenant_id="tenant_a"
+    )
+    assert user.user_id == "user_1"
+
+    # 2. Mismatched field raises PermissionError
+    claims_mismatch = json.dumps({"id": "user_1", "organization": "tenant_b"})
+    with pytest.raises(
+        PermissionError,
+        match="Claims tenant 'tenant_b' does not match requested tenant 'tenant_a'",
+    ):
+        _extract_single_header_claims(
+            source, claims_mismatch, expected_tenant_id="tenant_a"
+        )
+
+    # 3. Missing custom field raises PermissionError referencing the custom field name
+    claims_missing = json.dumps({"id": "user_1"})
+    with pytest.raises(
+        PermissionError,
+        match="Claims header is missing required 'organization' matching requested tenant 'tenant_a'",
+    ):
+        _extract_single_header_claims(
+            source, claims_missing, expected_tenant_id="tenant_a"
         )
 
 

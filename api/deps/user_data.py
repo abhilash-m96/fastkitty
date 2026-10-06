@@ -104,15 +104,21 @@ def _extract_jwt_token(
         raise ValueError("Invalid JWT token") from exc
 
     if expected_tenant_id:
-        token_tenant = (
-            claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
-        )
+        if source.tenant_id_claim:
+            token_tenant = claims.get(source.tenant_id_claim)
+            claim_desc = f"'{source.tenant_id_claim}'"
+        else:
+            token_tenant = (
+                claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+            )
+            claim_desc = "tenant claim"
+
         must_have_claim = (
             source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
         )
         if token_tenant is None and must_have_claim:
             raise PermissionError(
-                f"Token is missing required tenant claim matching requested tenant '{expected_tenant_id}'"
+                f"Token is missing required {claim_desc} matching requested tenant '{expected_tenant_id}'"
             )
         if (
             token_tenant is not None
@@ -155,15 +161,21 @@ def _extract_single_header_claims(
         raise ValueError("User claims header must be a JSON object")
 
     if expected_tenant_id:
-        claims_tenant = (
-            claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
-        )
+        if source.tenant_id_field:
+            claims_tenant = claims.get(source.tenant_id_field)
+            claim_desc = f"'{source.tenant_id_field}'"
+        else:
+            claims_tenant = (
+                claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+            )
+            claim_desc = "tenant claim"
+
         must_have_claim = (
             source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
         )
         if claims_tenant is None and must_have_claim:
             raise PermissionError(
-                f"Claims header is missing required tenant claim matching requested tenant '{expected_tenant_id}'"
+                f"Claims header is missing required {claim_desc} matching requested tenant '{expected_tenant_id}'"
             )
         if (
             claims_tenant is not None

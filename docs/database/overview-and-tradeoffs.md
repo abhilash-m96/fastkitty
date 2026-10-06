@@ -41,11 +41,18 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
 
 > [!TIP]
 > **Connecting to Remote & Managed Databases (TLS/SSL)**:  
-> When connecting to managed cloud databases (such as AWS RDS, Aurora, GCP Cloud SQL, or Supabase), encrypted connections are typically required by default. Append `?ssl=require` to `database_uri` in your secrets configuration:
+> When connecting to managed cloud databases (such as AWS RDS, Aurora, GCP Cloud SQL, or Supabase), encrypted connections are typically required by default. You can simply add `"ssl": "require"` (or `true`) under `database_config` in your secrets configuration, or append `?ssl=require` directly to `database_uri`:
 > ```json
-> "database_uri": "postgresql+asyncpg://user:password@rds-host:5432/dbname?ssl=require"
+> {
+>   "host": "rds-host.amazonaws.com",
+>   "port": 5432,
+>   "username": "user",
+>   "password": "secret",
+>   "database_name": "dbname",
+>   "ssl": "require"
+> }
 > ```
-> `asyncpg` automatically recognizes the query parameter and negotiates TLS encryption with the server.
+> FastKitty automatically configures the URI with the specified SSL mode, and `asyncpg` negotiates TLS encryption with the server.
 
 ---
 

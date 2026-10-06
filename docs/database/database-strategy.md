@@ -18,19 +18,19 @@ In `tenants_secrets.json`, each tenant defines its own complete database connect
   "netflix": {
     "tenant_id": "netflix",
     "database_config": {
-      "database_uri": "postgresql+asyncpg://netflix_admin:secret@netflix-cluster.rds.amazonaws.com:5432/netflix_db?ssl=require",
       "host": "netflix-cluster.rds.amazonaws.com",
       "port": 5432,
       "username": "netflix_admin",
       "password": "secret",
-      "database_name": "netflix_db"
+      "database_name": "netflix_db",
+      "ssl": "require"
     }
   }
 }
 ```
 
 > [!TIP]
-> **TLS / SSL Connections**: For cloud-hosted databases (AWS RDS, Aurora, GCP Cloud SQL), append `?ssl=require` to `database_uri` to ensure encrypted connections. `asyncpg` automatically negotiates TLS.
+> **TLS / SSL Connections**: For cloud-hosted databases (AWS RDS, Aurora, GCP Cloud SQL), set `"ssl": "require"` (or `true`) in `database_config` inside `tenants_secrets.json`, or append `?ssl=require` directly to `database_uri`. FastKitty automatically constructs the URI with the specified SSL mode, and `asyncpg` negotiates TLS.
 
 ---
 

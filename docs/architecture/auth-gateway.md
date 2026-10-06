@@ -92,11 +92,13 @@ Used when your gateway forwards the client's `Authorization: Bearer <token>` dir
 | `user_id_claim` | `str` | `"sub"` | The **JWT claim key** inside the token payload for user ID (*required*). |
 | `user_email_claim` | `str \| null` | `"email"` | The **JWT claim key** inside the token payload for user email (*optional*). |
 | `user_roles_claim` | `str \| null` | `"roles"` | The **JWT claim key** inside the token payload for user roles (*optional*, accepts a JSON list or comma-separated string). |
+| `tenant_id_claim` | `str \| null` | `null` | The **JWT claim key** inside the token payload for the tenant ID (e.g. `"tenant_id"`, `"org_id"`, `"custom:tenant"`). When omitted, checks `"tenant_id"`, `"tid"`, and `"tenant"`. |
+| `require_tenant_claim` | `bool` | `false` | When true, rejects tokens that lack a tenant claim matching `X-Tenant-ID` with HTTP 403. |
 
 #### `.env` Example
 
 ```bash
-USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "user_roles_claim": "roles"}'
+USER_DATA_SOURCE='{"type": "jwt", "header_name": "Authorization", "prefix": "Bearer", "user_id_claim": "sub", "user_email_claim": "email", "user_roles_claim": "roles", "tenant_id_claim": "org_id", "require_tenant_claim": true}'
 ```
 
 ---
@@ -113,12 +115,14 @@ Used when the gateway unpacks user claims and forwards them as a serialized JSON
 | `header_name` | `str` | `"X-User-Claims"` | The **HTTP header name** containing the serialized JSON claims object. |
 | `user_id_field` | `str` | `"id"` | The **JSON key** inside the claims object for user ID (*required*). |
 | `user_email_field` | `str \| null` | `"email"` | The **JSON key** inside the claims object for user email (*optional*). |
-| `user_roles_field` | `str \| null` | `"roles"` | The **JSON key** inside the claims object for user email (*optional*). |
+| `user_roles_field` | `str \| null` | `"roles"` | The **JSON key** inside the claims object for user roles (*optional*). |
+| `tenant_id_field` | `str \| null` | `null` | The **JSON key** inside the claims object for the tenant ID (e.g. `"tenant_id"`, `"org_id"`). When omitted, checks `"tenant_id"`, `"tid"`, and `"tenant"`. |
+| `require_tenant_claim` | `bool` | `false` | When true, rejects claims payloads that lack a tenant field matching `X-Tenant-ID` with HTTP 403. |
 
 #### `.env` Example
 
 ```bash
-USER_DATA_SOURCE='{"type": "claims", "header_name": "X-User-Claims", "user_id_field": "id", "user_email_field": "email", "user_roles_field": "roles"}'
+USER_DATA_SOURCE='{"type": "claims", "header_name": "X-User-Claims", "user_id_field": "id", "user_email_field": "email", "user_roles_field": "roles", "tenant_id_field": "org_id", "require_tenant_claim": true}'
 ```
 
 ---
