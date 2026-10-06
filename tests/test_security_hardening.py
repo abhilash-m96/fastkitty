@@ -922,6 +922,46 @@ def test_claims_mode_supports_custom_tenant_id_field() -> None:
         )
 
 
+def test_jwt_and_claims_mode_support_nested_dot_notation_paths() -> None:
+    """Extract tenant and user claims from nested objects using dot notation (e.g. 'app_metadata.tenant_id')."""
+    jwt_source = UserDataJWTSource(
+        tenant_id_claim="app_metadata.tenant_id",
+        user_id_claim="user.id",
+        user_email_claim="user.email",
+        require_tenant_claim=True,
+    )
+    token = jwt.encode(
+        {
+            "user": {"id": "nested_user", "email": "nested@example.com"},
+            "app_metadata": {"tenant_id": "tenant_nested"},
+        },
+        "secret",
+        algorithm="HS256",
+    )
+    user_from_jwt = _extract_jwt_token(
+        jwt_source, token, expected_tenant_id="tenant_nested"
+    )
+    assert user_from_jwt.user_id == "nested_user"
+    assert user_from_jwt.email == "nested@example.com"
+
+    # Claims mode with nested payload
+    claims_source = UserDataSingleHeaderClaimsSource(
+        tenant_id_field="metadata.org.id",
+        user_id_field="account.uid",
+        require_tenant_claim=True,
+    )
+    claims_payload = json.dumps(
+        {
+            "account": {"uid": "claims_nested_user"},
+            "metadata": {"org": {"id": "tenant_nested"}},
+        }
+    )
+    user_from_claims = _extract_single_header_claims(
+        claims_source, claims_payload, expected_tenant_id="tenant_nested"
+    )
+    assert user_from_claims.user_id == "claims_nested_user"
+
+
 # ---------------------------------------------------------------------------
 # Helpful Startup Failure When Tenant Missing from Secrets
 # ---------------------------------------------------------------------------

@@ -74,6 +74,25 @@ def _extract_bearer_token(header_value: str | None, prefix: str | None) -> str |
     raise ValueError("Invalid Authorization header format")
 
 
+def _extract_claim_value(claims: dict[str, Any], key: str) -> Any:
+    """Extract a claim value from a claims mapping.
+
+    Supports direct key lookup as well as nested dot-notation paths
+    (e.g. 'app_metadata.tenant_id', 'user.org_id').
+    """
+    if key in claims:
+        return claims[key]
+    if "." in key:
+        curr: Any = claims
+        for part in key.split("."):
+            if isinstance(curr, dict) and part in curr:
+                curr = curr[part]
+            else:
+                return None
+        return curr
+    return None
+
+
 def _extract_jwt_token(
     source: UserDataJWTSource,
     token: str,
@@ -105,11 +124,13 @@ def _extract_jwt_token(
 
     if expected_tenant_id:
         if source.tenant_id_claim:
-            token_tenant = claims.get(source.tenant_id_claim)
+            token_tenant = _extract_claim_value(claims, source.tenant_id_claim)
             claim_desc = f"'{source.tenant_id_claim}'"
         else:
             token_tenant = (
-                claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+                _extract_claim_value(claims, "tenant_id")
+                or _extract_claim_value(claims, "tid")
+                or _extract_claim_value(claims, "tenant")
             )
             claim_desc = "tenant claim"
 
@@ -138,7 +159,7 @@ def _extract_jwt_token(
         if field_name not in UserDataJWTSource._payload_key_map:
             continue
         payload_key = UserDataJWTSource._payload_key_map[field_name]
-        value = claims.get(claim_key)
+        value = _extract_claim_value(claims, claim_key)
         if value is None and not _is_optional(field_info.annotation):
             raise ValueError(f"JWT is missing required claim: {claim_key}")
         result[payload_key] = value
@@ -162,11 +183,13 @@ def _extract_single_header_claims(
 
     if expected_tenant_id:
         if source.tenant_id_field:
-            claims_tenant = claims.get(source.tenant_id_field)
+            claims_tenant = _extract_claim_value(claims, source.tenant_id_field)
             claim_desc = f"'{source.tenant_id_field}'"
         else:
             claims_tenant = (
-                claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
+                _extract_claim_value(claims, "tenant_id")
+                or _extract_claim_value(claims, "tid")
+                or _extract_claim_value(claims, "tenant")
             )
             claim_desc = "tenant claim"
 
@@ -195,7 +218,7 @@ def _extract_single_header_claims(
         if field_name not in UserDataSingleHeaderClaimsSource._payload_key_map:
             continue
         payload_key = UserDataSingleHeaderClaimsSource._payload_key_map[field_name]
-        value = claims.get(claim_key)
+        value = _extract_claim_value(claims, claim_key)
         if value is None and not _is_optional(field_info.annotation):
             raise ValueError(
                 f"User claims header is missing required field: {claim_key}"
