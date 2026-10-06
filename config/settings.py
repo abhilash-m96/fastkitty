@@ -87,6 +87,14 @@ class UserDataJWTSource(BaseModel):
     user_id_claim: str = Field(default="sub")
     user_email_claim: str | None = Field(default="email")
     user_roles_claim: str | None = Field(default="roles")
+    tenant_id_claim: str | None = Field(
+        default=None,
+        description="JWT claim key holding the tenant ID (e.g. 'tenant_id', 'org_id'). Falls back to 'tenant_id', 'tid', or 'tenant' if omitted.",
+    )
+    require_tenant_claim: bool = Field(
+        default=False,
+        description="Whether to reject JWT tokens that lack a tenant claim when X-Tenant-ID is present",
+    )
 
     _payload_key_map: ClassVar[dict[str, UserDataField]] = {
         "user_id_claim": UserDataField.user_id,
@@ -101,6 +109,14 @@ class UserDataSingleHeaderClaimsSource(BaseModel):
     user_id_field: str = Field(default="id")
     user_email_field: str | None = Field(default="email")
     user_roles_field: str | None = Field(default="roles")
+    tenant_id_field: str | None = Field(
+        default=None,
+        description="Field key inside claims payload holding the tenant ID (e.g. 'tenant_id', 'org_id'). Falls back to 'tenant_id', 'tid', or 'tenant' if omitted.",
+    )
+    require_tenant_claim: bool = Field(
+        default=False,
+        description="Whether to reject claims headers that lack a tenant claim when X-Tenant-ID is present",
+    )
 
     _payload_key_map: ClassVar[dict[str, UserDataField]] = {
         "user_id_field": UserDataField.user_id,
@@ -127,9 +143,9 @@ class Settings(BaseSettings):
     # App Settings
     APP_NAME: str = Field(default="fastkitty")
     DESCRIPTION: str = Field(default="fastkitty multi-tenant service template")
-    DEBUG: bool = Field(default=True)
+    DEBUG: bool = Field(default=False)
     VERSION: str = Field(default="0.1.0")
-    ENV: str = Field(default="dev")
+    ENV: str = Field(default="prod")
 
     # Tenancy Settings
     TENANCY_CONFIG_CONNECTION: TenancyConfigConnection = Field(
@@ -157,11 +173,24 @@ class Settings(BaseSettings):
         description="User data extraction strategy (headers | jwt | single header claims). "
         "Omit entirely if the service does not require user identity extraction.",
     )
+    TRUST_UPSTREAM_AUTH: bool = Field(
+        default=False,
+        description="Explicit opt-in to trust upstream gateway identity headers/claims. "
+        "Must be True when USER_DATA_SOURCE is configured and ENV != 'dev'.",
+    )
+    REQUIRE_TENANT_CLAIM: bool = Field(
+        default=False,
+        description="Require a tenant claim matching X-Tenant-ID when JWT or single-header claims mode is used.",
+    )
 
     # Logfire / Telemetry Settings
     LOGFIRE_ENABLED: bool = Field(
         default=True,
         description="Enable or disable Logfire telemetry instrumentations",
+    )
+    LOGFIRE_CAPTURE_HEADERS: bool = Field(
+        default=False,
+        description="Capture HTTP headers in Logfire traces. Defaults to False to prevent token and PII leakage.",
     )
     LOGFIRE_SEND_TO_LOGFIRE: bool = Field(
         default=False,

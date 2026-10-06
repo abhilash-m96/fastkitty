@@ -42,7 +42,9 @@ class BlogPostsService:
     ) -> BlogPost:
         logger.info("Creating blog post '%s' for author '%s'", payload.title, user_id)
 
-        max_daily_posts = feature_config.get("max_daily_posts") if feature_config else None
+        max_daily_posts = (
+            feature_config.get("max_daily_posts") if feature_config else None
+        )
         if max_daily_posts is not None:
             today_start = datetime.now(timezone.utc).replace(
                 hour=0, minute=0, second=0, microsecond=0

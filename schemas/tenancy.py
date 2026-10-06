@@ -1,5 +1,16 @@
+import re
+import urllib.parse
 from typing import Any, Literal, Optional, Self
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.engine import make_url
+
+
+def _mask_url(url: str) -> str:
+    """Mask credentials in a database connection URL for safe logging and repr."""
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:
+        return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
 
 
 class DatabaseConfig(BaseModel):
@@ -18,6 +29,10 @@ class DatabaseConfig(BaseModel):
         description="Tenant schema name, used in schema-per-tenant strategy",
     )
     database_uri: str = Field(default="", description="Database connection URI")
+    ssl: Optional[str | bool] = Field(
+        default=None,
+        description="SSL mode for database connection (e.g., 'require', 'prefer', 'verify-full', or True)",
+    )
     pool_pre_ping: bool = Field(
         default=True, description="Whether to pre-ping the database"
     )
@@ -29,6 +44,20 @@ class DatabaseConfig(BaseModel):
         default=3600,
         description="The number of seconds to recycle the database connections",
     )
+
+    def __repr__(self) -> str:
+        masked_uri = _mask_url(self.database_uri) if self.database_uri else ""
+        return (
+            f"DatabaseConfig(dialect={self.dialect!r}, host={self.host!r}, "
+            f"port={self.port!r}, username={self.username!r}, password='***', "
+            f"database_name={self.database_name!r}, schema_name={self.schema_name!r}, "
+            f"database_uri={masked_uri!r}, pool_pre_ping={self.pool_pre_ping}, "
+            f"pool_size={self.pool_size}, max_overflow={self.max_overflow}, "
+            f"pool_recycle={self.pool_recycle}, ssl={self.ssl!r})"
+        )
+
+    def __str__(self) -> str:
+        return repr(self)
 
     @model_validator(mode="after")
     def set_uri(self) -> Self:
@@ -53,11 +82,29 @@ class DatabaseConfig(BaseModel):
                         old, "postgresql+asyncpg://", 1
                     )
                     break
+            if self.ssl is not None and "ssl=" not in self.database_uri:
+                ssl_val = (
+                    "require"
+                    if self.ssl is True
+                    else ("disable" if self.ssl is False else str(self.ssl))
+                )
+                delimiter = "&" if "?" in self.database_uri else "?"
+                self.database_uri = f"{self.database_uri}{delimiter}ssl={ssl_val}"
         else:
-            self.database_uri = (
-                f"{self.dialect}://{self.username}:{self.password}"
+            quoted_user = urllib.parse.quote(self.username, safe="")
+            quoted_pass = urllib.parse.quote(self.password, safe="")
+            uri = (
+                f"{self.dialect}://{quoted_user}:{quoted_pass}"
                 f"@{self.host}:{self.port}/{self.database_name}"
             )
+            if self.ssl is not None:
+                ssl_val = (
+                    "require"
+                    if self.ssl is True
+                    else ("disable" if self.ssl is False else str(self.ssl))
+                )
+                uri = f"{uri}?ssl={ssl_val}"
+            self.database_uri = uri
         return self
 
 

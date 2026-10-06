@@ -14,6 +14,54 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Strip any dev machine / CI environment variables that would bleed into tests.
+# Every setting must come from test defaults or explicit per-test fixtures.
+_STRIP_PREFIXES = ("LOGFIRE_", "TENANCY_", "USER_DATA_", "TRUST_UPSTREAM_")
+_STRIP_EXACT = ("ENV", "DEBUG", "APP_NAME")
+for key in list(os.environ):
+    if key.startswith(_STRIP_PREFIXES) or key in _STRIP_EXACT:
+        del os.environ[key]
+
+# Force dev mode and disable dotenv loading so developer's local .env
+# cannot change test behaviour.
+os.environ["ENV"] = "dev"
+from config.settings import Settings, get_settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
+get_settings.cache_clear()
+
+# Default config / secrets to the example files so any code path that falls
+# back to settings (e.g. TenancyConfigProviderFactory without connection arg)
+# resolves safely without requiring real infrastructure.
+_config_file = (
+    PROJECT_ROOT / "tenants_config.example.json"
+    if (PROJECT_ROOT / "tenants_config.example.json").exists()
+    else PROJECT_ROOT / "tenants_config.json"
+)
+os.environ.setdefault(
+    "TENANCY_CONFIG_CONNECTION",
+    json.dumps(
+        {
+            "type": "file",
+            "file_path": str(_config_file),
+        }
+    ),
+)
+_secrets_file = (
+    PROJECT_ROOT / "tenants_secrets.example.json"
+    if (PROJECT_ROOT / "tenants_secrets.example.json").exists()
+    else PROJECT_ROOT / "tenants_secrets.json"
+)
+os.environ.setdefault(
+    "TENANCY_SECRETS_CONNECTION",
+    json.dumps(
+        {
+            "type": "file",
+            "file_path": str(_secrets_file),
+        }
+    ),
+)
+
 from schemas.tenancy import DatabaseConfig, TenantConfig, TenantSecrets  # noqa: E402
 
 

@@ -46,6 +46,10 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
 
     for tenant_id in _iter_known_tenant_ids(config_provider):
         tenant_secrets = secrets_provider.get_secrets(tenant_id)
+        if tenant_secrets is None:
+            raise ValueError(
+                f"Tenant '{tenant_id}' is configured in tenancy config but has no matching secrets entry in tenancy secrets provider."
+            )
         validate_database_config_for_strategy(
             tenant_secrets.database_config,
             settings.TENANCY_DB_STRATEGY,

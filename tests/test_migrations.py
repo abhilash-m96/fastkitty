@@ -162,7 +162,10 @@ async def test_row_strategy_execution() -> None:
     mock_settings = Settings(TENANCY_DB_STRATEGY="row")
 
     with (
-        patch("db.migrations.get_x_argument", side_effect=lambda ctx, k: db_url if k == "url" else None),
+        patch(
+            "db.migrations.get_x_argument",
+            side_effect=lambda ctx, k: db_url if k == "url" else None,
+        ),
         patch("db.migrations.get_settings", return_value=mock_settings),
         patch("db.migrations.create_async_engine", side_effect=fake_create_engine),
     ):
@@ -222,7 +225,10 @@ async def test_database_strategy_execution() -> None:
 
     with (
         patch("db.migrations.get_x_argument", return_value=None),
-        patch("db.migrations.resolve_tenants_and_secrets", return_value=(tenants, mock_secrets)),
+        patch(
+            "db.migrations.resolve_tenants_and_secrets",
+            return_value=(tenants, mock_secrets),
+        ),
         patch("db.migrations.get_settings", return_value=mock_settings),
         patch("db.migrations.create_async_engine", side_effect=fake_create_engine),
     ):

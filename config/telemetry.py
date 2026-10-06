@@ -12,9 +12,7 @@ from config.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def enrich_span_with_tenant(
-    tenant_id: str, display_name: str | None = None
-) -> None:
+def enrich_span_with_tenant(tenant_id: str, display_name: str | None = None) -> None:
     """Enrich the current active OpenTelemetry / Logfire span with tenant context."""
     span = trace.get_current_span()
     if span.is_recording():
@@ -100,7 +98,9 @@ def setup_telemetry(app: FastAPI, settings: Settings) -> None:
 
     # Instrument FastAPI requests and response lifecycles
     try:
-        logfire.instrument_fastapi(app, capture_headers=True)
+        logfire.instrument_fastapi(
+            app, capture_headers=settings.LOGFIRE_CAPTURE_HEADERS
+        )
     except Exception as e:
         logger.warning("Failed to instrument FastAPI with Logfire: %s", e)
 

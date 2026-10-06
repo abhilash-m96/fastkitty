@@ -1,10 +1,26 @@
 from abc import ABC, abstractmethod
-from schemas.tenancy import TenantConfig, TenantSecrets, TenantMetadata
 import json
+import os
+import re
 from urllib.parse import urlparse
 
 import consul
 import hvac
+from schemas.tenancy import TenantConfig, TenantSecrets, TenantMetadata
+
+_TENANT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
+def validate_tenant_id(tenant_id: str) -> str:
+    """Validate that tenant_id adheres to a safe identifier format without path traversal."""
+    if not isinstance(tenant_id, str):
+        raise ValueError("tenant_id must be a string")
+    normalized = tenant_id.strip().lower()
+    if not _TENANT_ID_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            f"Invalid tenant_id format: '{tenant_id}'. Must match ^[a-z0-9][a-z0-9_-]{{0,62}}$"
+        )
+    return normalized
 
 
 class TenancyConfigProvider(ABC):
@@ -15,7 +31,7 @@ class TenancyConfigProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig:
+    def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig | None:
         """Get configuration for a specific tenant."""
         raise NotImplementedError
 
@@ -35,11 +51,14 @@ class FileTenancyConfigProvider(TenancyConfigProvider):
         data = self._get_all_config()
         return [TenantMetadata(**tenant) for tenant in data.values()]
 
-    def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig:
+    def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig | None:
         # TODO handle caching based on `fresh`
         """Get configuration for a specific tenant."""
+        tenant_id = validate_tenant_id(tenant_id)
         data = self._get_all_config()
         tenant_config_data = data.get(tenant_id)
+        if not tenant_config_data:
+            return None
         return TenantConfig(**tenant_config_data)
 
 
@@ -74,6 +93,7 @@ class HCConsulTenancyConfigProvider(TenancyConfigProvider):
 
     def get_config(self, tenant_id: str, fresh: bool = False) -> TenantConfig:
         # TODO handle caching based on `fresh`
+        tenant_id = validate_tenant_id(tenant_id)
         key = self._key_for_tenant(tenant_id)
         _index, data = self._client.kv.get(key)
         if not data or data.get("Value") is None:
@@ -95,7 +115,7 @@ class TenancySecretsProvider(ABC):
     """Abstract base class for tenant secret providers."""
 
     @abstractmethod
-    def get_secrets(self, tenant_id: str) -> TenantSecrets:
+    def get_secrets(self, tenant_id: str) -> TenantSecrets | None:
         """Get secrets for a specific tenant."""
         raise NotImplementedError
 
@@ -106,12 +126,29 @@ class FileTenancySecretsProvider(TenancySecretsProvider):
     def __init__(self, file_path: str):
         self.file_path = file_path
 
-    def get_secrets(self, tenant_id: str, fresh: bool = True) -> TenantSecrets:
+    def get_secrets(self, tenant_id: str, fresh: bool = True) -> TenantSecrets | None:
         # TODO handle caching based on fresh value
         """Get secrets for a specific tenant."""
+        tenant_id = validate_tenant_id(tenant_id)
+
+        if not os.path.exists(self.file_path):
+            example_path = (
+                self.file_path.replace(".json", ".example.json")
+                if not self.file_path.endswith(".example.json")
+                else self.file_path
+            )
+            if os.path.exists(example_path):
+                raise FileNotFoundError(
+                    f"Secrets file '{self.file_path}' not found. "
+                    f"Please copy '{example_path}' to '{self.file_path}' and configure your tenant credentials."
+                )
+            raise FileNotFoundError(f"Secrets file '{self.file_path}' not found.")
+
         with open(self.file_path, "r") as f:
             data = json.load(f)
             tenant_secrets_data = data.get(tenant_id)
+            if not tenant_secrets_data:
+                return None
             return TenantSecrets(**tenant_secrets_data)
 
 
@@ -130,6 +167,7 @@ class HCVaultTenancySecretsProvider(TenancySecretsProvider):
 
     def get_secrets(self, tenant_id: str, fresh: bool = True) -> TenantSecrets:
         # TODO handle caching based on fresh value
+        tenant_id = validate_tenant_id(tenant_id)
         if "{tenant_id}" in self._vault_kv_path:
             path = self._vault_kv_path.format(tenant_id=tenant_id)
         else:

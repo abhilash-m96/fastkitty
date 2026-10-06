@@ -14,6 +14,7 @@ Every tenancy config provider implements `BaseTenancyConfigProvider` in `config/
 from abc import ABC, abstractmethod
 from schemas.tenancy import TenantConfig
 
+
 class BaseTenancyConfigProvider(ABC):
     @abstractmethod
     async def get_tenant_config(self, tenant_id: str) -> TenantConfig | None:
@@ -49,6 +50,7 @@ import json
 import redis.asyncio as redis
 from schemas.tenancy import TenantConfig
 from config.tenancy_config import BaseTenancyConfigProvider
+
 
 class RedisTenancyConfigProvider(BaseTenancyConfigProvider):
     def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:

@@ -10,10 +10,16 @@ from db.tenancy_strategy import DatabaseTenancyStrategy, TenantDBContext
 from schemas.tenancy import DatabaseConfig
 
 
+class FakeSyncSession:
+    def __init__(self) -> None:
+        self.listeners: dict[str, list[object]] = {}
+
+
 class FakeAsyncSession:
     def __init__(self) -> None:
         self.rollback_calls = 0
         self.close_calls = 0
+        self.sync_session = FakeSyncSession()
 
     async def rollback(self) -> None:
         self.rollback_calls += 1
@@ -72,6 +78,21 @@ def _make_settings(max_engines: int) -> Settings:
     )
 
 
+@pytest.fixture(autouse=True)
+def _patch_event_listen(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sqlalchemy import event as sa_event
+
+    orig_listen = sa_event.listen
+
+    def fake_listen(target: object, event_name: str, fn: object) -> None:
+        if isinstance(target, FakeSyncSession):
+            target.listeners.setdefault(event_name, []).append(fn)
+            return
+        orig_listen(target, event_name, fn)
+
+    monkeypatch.setattr("db.tenancy_strategy.event.listen", fake_listen)
+
+
 def _patch_engine_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, FakeAsyncEngine]:
@@ -88,12 +109,17 @@ def _patch_engine_factory(
 
         return _factory
 
+    def fake_listen(target: object, event_name: str, fn: object) -> None:
+        if isinstance(target, FakeSyncSession):
+            target.listeners.setdefault(event_name, []).append(fn)
+
     monkeypatch.setattr(
         "db.tenancy_strategy.create_async_engine", fake_create_async_engine
     )
     monkeypatch.setattr(
         "db.tenancy_strategy.async_sessionmaker", fake_async_sessionmaker
     )
+    monkeypatch.setattr("db.tenancy_strategy.event.listen", fake_listen)
     return engines_by_url
 
 

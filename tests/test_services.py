@@ -100,7 +100,6 @@ async def test_blog_posts_service_allows_post_under_daily_limit() -> None:
     db.add.assert_called_once()
 
 
-
 @pytest.mark.asyncio
 async def test_blog_posts_service_update_post_ignores_unknown_author_field() -> None:
     """Ignore author changes when applying partial update payloads."""

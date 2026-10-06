@@ -39,6 +39,21 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
 - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
 - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
 
+> [!TIP]
+> **Connecting to Remote & Managed Databases (TLS/SSL)**:  
+> When connecting to managed cloud databases (such as AWS RDS, Aurora, GCP Cloud SQL, or Supabase), encrypted connections are typically required by default. You can simply add `"ssl": "require"` (or `true`) under `database_config` in your secrets configuration, or append `?ssl=require` directly to `database_uri`:
+> ```json
+> {
+>   "host": "rds-host.amazonaws.com",
+>   "port": 5432,
+>   "username": "user",
+>   "password": "secret",
+>   "database_name": "dbname",
+>   "ssl": "require"
+> }
+> ```
+> FastKitty automatically configures the URI with the specified SSL mode, and `asyncpg` negotiates TLS encryption with the server.
+
 ---
 
 ## Guarantees & Known Limitations
@@ -46,8 +61,8 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
 ### Strategy Guarantees
 
 * **`database` strategy**: Strongest isolation. Tenant queries run against distinct physical or logical database instances. Cross-tenant leakage via application bugs is structurally impossible at the database engine level.
-* **`schema` strategy**: Strong isolation via PostgreSQL schema namespaces. The `search_path` is set per connection checkout and safely reset on checkin.
-* **`row` strategy**: FastKitty automatically injects tenant filters on ORM queries via `with_loader_criteria` and stamps `tenant_id` on new models.
+* **`schema` strategy**: Strong isolation via PostgreSQL schema namespaces. The `search_path` is dynamically set per transaction using `SET LOCAL search_path` on the `after_begin` event, cleanly reverting on transaction boundaries and preventing pooled connection leaks even across rollbacks.
+* **`row` strategy**: FastKitty automatically injects tenant filters on all ORM queries and statements (`select`, `update`, `delete`) via `with_loader_criteria`, stamps `tenant_id` on inserts, and validates deleted instances in the session identity map.
 
 ### Known Limitations & Trade-offs
 

@@ -1,13 +1,15 @@
 import inspect
 import json
 import logging
+import types
 import typing
 from collections.abc import Callable
 from typing import Any, Coroutine, Literal, get_origin, get_args, Union
 
 import jwt
-from fastapi import HTTPException, Header, status
+from fastapi import HTTPException, Header, Request, status
 from jwt import PyJWTError
+
 
 from config.settings import (
     UserDataHeaderSource,
@@ -29,18 +31,14 @@ _source = get_settings().USER_DATA_SOURCE
 # -----------------------
 
 
-import types
-
-
 def _is_literal_field(field_info) -> bool:
     return typing.get_origin(field_info.annotation) is Literal
 
 
 def _is_optional(annotation) -> bool:
-    return (
-        get_origin(annotation) in (Union, types.UnionType)
-        and type(None) in get_args(annotation)
-    )
+    return get_origin(annotation) in (Union, types.UnionType) and type(
+        None
+    ) in get_args(annotation)
 
 
 def _is_field_active(src, field_name: str, field_info) -> bool:
@@ -76,11 +74,80 @@ def _extract_bearer_token(header_value: str | None, prefix: str | None) -> str |
     raise ValueError("Invalid Authorization header format")
 
 
-def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
+def _extract_claim_value(claims: dict[str, Any], key: str) -> Any:
+    """Extract a claim value from a claims mapping.
+
+    Supports direct key lookup as well as nested dot-notation paths
+    (e.g. 'app_metadata.tenant_id', 'user.org_id').
+    """
+    if key in claims:
+        return claims[key]
+    if "." in key:
+        curr: Any = claims
+        for part in key.split("."):
+            if isinstance(curr, dict) and part in curr:
+                curr = curr[part]
+            else:
+                return None
+        return curr
+    return None
+
+
+def _extract_jwt_token(
+    source: UserDataJWTSource,
+    token: str,
+    expected_tenant_id: str | None = None,
+) -> UserData:
+    """Extract and parse claims from a JWT token without cryptographic verification.
+
+    IMPORTANT ARCHITECTURAL SECURITY NOTE:
+    FastKitty services operate behind an API Gateway (or BFF) on a trusted internal
+    network where authentication (signature verification, expiration, issuer checks)
+    is handled upstream. The service extracts identity claims for tenant isolation and
+    logging without the CPU overhead of redundant re-verification. If the service is
+    ever exposed directly to public internet traffic without an upstream gateway,
+    cryptographic signature verification MUST be enforced.
+    """
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+    except PyJWTError as exc:
+        raise ValueError("Invalid JWT token") from exc
+
+    alg_header = unverified_header.get("alg")
+    if not isinstance(alg_header, str) or alg_header.lower() == "none":
+        raise ValueError("JWT 'none' algorithm is forbidden")
+
     try:
         claims = jwt.decode(token, options={"verify_signature": False})
     except PyJWTError as exc:
         raise ValueError("Invalid JWT token") from exc
+
+    if expected_tenant_id:
+        if source.tenant_id_claim:
+            token_tenant = _extract_claim_value(claims, source.tenant_id_claim)
+            claim_desc = f"'{source.tenant_id_claim}'"
+        else:
+            token_tenant = (
+                _extract_claim_value(claims, "tenant_id")
+                or _extract_claim_value(claims, "tid")
+                or _extract_claim_value(claims, "tenant")
+            )
+            claim_desc = "tenant claim"
+
+        must_have_claim = (
+            source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
+        )
+        if token_tenant is None and must_have_claim:
+            raise PermissionError(
+                f"Token is missing required {claim_desc} matching requested tenant '{expected_tenant_id}'"
+            )
+        if (
+            token_tenant is not None
+            and str(token_tenant).strip().lower() != expected_tenant_id.strip().lower()
+        ):
+            raise PermissionError(
+                f"Token tenant '{token_tenant}' does not match requested tenant '{expected_tenant_id}'"
+            )
 
     result = {}
     for field_name, field_info in UserDataJWTSource.model_fields.items():
@@ -92,7 +159,7 @@ def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
         if field_name not in UserDataJWTSource._payload_key_map:
             continue
         payload_key = UserDataJWTSource._payload_key_map[field_name]
-        value = claims.get(claim_key)
+        value = _extract_claim_value(claims, claim_key)
         if value is None and not _is_optional(field_info.annotation):
             raise ValueError(f"JWT is missing required claim: {claim_key}")
         result[payload_key] = value
@@ -102,7 +169,9 @@ def _extract_jwt_token(source: UserDataJWTSource, token: str) -> UserData:
 
 
 def _extract_single_header_claims(
-    source: UserDataSingleHeaderClaimsSource, header_value: str
+    source: UserDataSingleHeaderClaimsSource,
+    header_value: str,
+    expected_tenant_id: str | None = None,
 ) -> UserData:
     try:
         claims = json.loads(header_value)
@@ -111,6 +180,33 @@ def _extract_single_header_claims(
 
     if not isinstance(claims, dict):
         raise ValueError("User claims header must be a JSON object")
+
+    if expected_tenant_id:
+        if source.tenant_id_field:
+            claims_tenant = _extract_claim_value(claims, source.tenant_id_field)
+            claim_desc = f"'{source.tenant_id_field}'"
+        else:
+            claims_tenant = (
+                _extract_claim_value(claims, "tenant_id")
+                or _extract_claim_value(claims, "tid")
+                or _extract_claim_value(claims, "tenant")
+            )
+            claim_desc = "tenant claim"
+
+        must_have_claim = (
+            source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
+        )
+        if claims_tenant is None and must_have_claim:
+            raise PermissionError(
+                f"Claims header is missing required {claim_desc} matching requested tenant '{expected_tenant_id}'"
+            )
+        if (
+            claims_tenant is not None
+            and str(claims_tenant).strip().lower() != expected_tenant_id.strip().lower()
+        ):
+            raise PermissionError(
+                f"Claims tenant '{claims_tenant}' does not match requested tenant '{expected_tenant_id}'"
+            )
 
     result = {}
     for field_name, field_info in UserDataSingleHeaderClaimsSource.model_fields.items():
@@ -122,7 +218,7 @@ def _extract_single_header_claims(
         if field_name not in UserDataSingleHeaderClaimsSource._payload_key_map:
             continue
         payload_key = UserDataSingleHeaderClaimsSource._payload_key_map[field_name]
-        value = claims.get(claim_key)
+        value = _extract_claim_value(claims, claim_key)
         if value is None and not _is_optional(field_info.annotation):
             raise ValueError(
                 f"User claims header is missing required field: {claim_key}"
@@ -174,6 +270,16 @@ def _build_dynamic_signature(model_class, src) -> inspect.Signature:
             annotation=str if is_required else str | None,
         )
         params.append(param)
+
+    # Allow Request injection for cross-tenant validation without exposing it in OpenAPI parameters
+    params.append(
+        inspect.Parameter(
+            "request",
+            inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Request,
+        )
+    )
 
     return inspect.Signature(params)
 
@@ -252,13 +358,26 @@ def _build_get_user_data(
                 token = _extract_bearer_token(auth_header, src.prefix)
                 if not token:
                     raise ValueError("Authorization token is required")
-                user_data = _extract_jwt_token(src, token)
+
+                request: Request | None = kwargs.get("request")
+                expected_tenant_id = kwargs.get("expected_tenant_id")
+                if not expected_tenant_id and request is not None:
+                    expected_tenant_id = request.headers.get("x-tenant-id")
+
+                user_data = _extract_jwt_token(
+                    src, token, expected_tenant_id=expected_tenant_id
+                )
                 enrich_span_with_user(
                     user_id=user_data.user_id,
                     email=user_data.email,
                     roles=user_data.roles,
                 )
                 return user_data
+            except PermissionError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=str(exc),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -283,13 +402,26 @@ def _build_get_user_data(
                 claims_header = kwargs.get("header_name")
                 if not claims_header:
                     raise ValueError(f"Missing required header: {src.header_name}")
-                user_data = _extract_single_header_claims(src, claims_header)
+
+                request: Request | None = kwargs.get("request")
+                expected_tenant_id = kwargs.get("expected_tenant_id")
+                if not expected_tenant_id and request is not None:
+                    expected_tenant_id = request.headers.get("x-tenant-id")
+
+                user_data = _extract_single_header_claims(
+                    src, claims_header, expected_tenant_id=expected_tenant_id
+                )
                 enrich_span_with_user(
                     user_id=user_data.user_id,
                     email=user_data.email,
                     roles=user_data.roles,
                 )
                 return user_data
+            except PermissionError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=str(exc),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

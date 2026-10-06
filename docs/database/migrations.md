@@ -34,7 +34,7 @@ FastKitty's migration runner in `db/migrations.py` (invoked via `alembic/env.py`
 - For each tenant:
   1. Validates the schema name against SQL injection and reserved PostgreSQL schemas (`public`, `pg_catalog`, `information_schema`).
   2. Runs `CREATE SCHEMA IF NOT EXISTS "<schema_name>"`.
-  3. Sets connection `search_path TO "<schema_name>", public`.
+  3. Sets connection `search_path TO "<schema_name>", public`. (Note: Migrations include `public` so PostgreSQL extensions like `uuid-ossp` or `citext` installed in `public` remain accessible during DDL execution. In contrast, runtime query execution sets `search_path TO "<schema_name>"` strictly to prevent data leaks from unmigrated tables).
   4. Runs migrations with isolated version tracking (`version_table_schema="<schema_name>"`).
   5. Cleans up with `RESET search_path`.
 
@@ -80,6 +80,7 @@ To register a new SQLAlchemy model for migrations:
    from sqlalchemy import Integer, String
    from sqlalchemy.orm import Mapped, mapped_column
    from models.base import Base, TenantScopedModel, TimestampedModel
+
 
    class Order(TenantScopedModel, TimestampedModel, Base):
        __tablename__ = "orders"

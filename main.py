@@ -21,6 +21,31 @@ async def lifespan(app: FastAPI):
         settings.TENANCY_DB_STRATEGY,
         settings.ENV,
     )
+    if (
+        settings.USER_DATA_SOURCE is not None
+        and settings.ENV.lower() != "dev"
+        and not settings.TRUST_UPSTREAM_AUTH
+    ):
+        raise RuntimeError(
+            "TRUST_UPSTREAM_AUTH must be set to True when USER_DATA_SOURCE is configured "
+            "in non-dev environments (ENV != 'dev'). Ensure your upstream API Gateway strips "
+            "untrusted user identity headers from external requests."
+        )
+    if (
+        settings.USER_DATA_SOURCE is not None
+        and getattr(settings.USER_DATA_SOURCE, "type", None) in ("jwt", "claims")
+        and not (
+            settings.REQUIRE_TENANT_CLAIM
+            or getattr(settings.USER_DATA_SOURCE, "require_tenant_claim", False)
+        )
+        and settings.ENV.lower() != "dev"
+    ):
+        logger.warning(
+            "REQUIRE_TENANT_CLAIM is disabled in non-dev environment with %s mode. "
+            "Tokens without a tenant claim will be accepted for any X-Tenant-ID. "
+            "Ensure upstream gateway validates tenant claims or set REQUIRE_TENANT_CLAIM=true.",
+            settings.USER_DATA_SOURCE.type,
+        )
     validate_tenancy_strategy_startup(settings)
     tenancy_strategy = create_tenancy_strategy(settings)
     await tenancy_strategy.setup(app)
@@ -56,4 +81,4 @@ app.include_router(v1_router)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=settings.DEBUG)

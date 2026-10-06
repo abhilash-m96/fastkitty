@@ -135,6 +135,8 @@ def test_row_strategy_requires_tenant_context_for_reads() -> None:
         _ExecuteState,
         SimpleNamespace(
             is_select=True,
+            is_update=False,
+            is_delete=False,
             is_column_load=False,
             is_relationship_load=False,
             statement=SimpleNamespace(options=lambda *args: args),
@@ -145,8 +147,9 @@ def test_row_strategy_requires_tenant_context_for_reads() -> None:
         _apply_row_tenant_scope(execute_state)
 
 
-def test_row_strategy_applies_tenant_scope_to_selects(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("operation", ["is_select", "is_update", "is_delete"])
+def test_row_strategy_applies_tenant_scope_to_operations(
+    monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
     tenant_token = set_current_row_tenant_id("tenant_1")
     captured: dict[str, object] = {}
@@ -167,15 +170,15 @@ def test_row_strategy_applies_tenant_scope_to_selects(
     monkeypatch.setattr(
         "db.tenancy_strategy.with_loader_criteria", fake_with_loader_criteria
     )
-    execute_state = cast(
-        _ExecuteState,
-        SimpleNamespace(
-            is_select=True,
-            is_column_load=False,
-            is_relationship_load=False,
-            statement=FakeStatement(),
-        ),
-    )
+    kwargs = {
+        "is_select": operation == "is_select",
+        "is_update": operation == "is_update",
+        "is_delete": operation == "is_delete",
+        "is_column_load": False,
+        "is_relationship_load": False,
+        "statement": FakeStatement(),
+    }
+    execute_state = cast(_ExecuteState, SimpleNamespace(**kwargs))
 
     _apply_row_tenant_scope(execute_state)
 
@@ -191,7 +194,7 @@ def test_row_strategy_stamps_new_instances_with_tenant_id() -> None:
     post = BlogPost(title="Title", content="Body", author="Author")
     sync_session = cast(
         _SyncSessionLike,
-        SimpleNamespace(new=[post], dirty=[]),
+        SimpleNamespace(new=[post], dirty=[], deleted=[]),
     )
 
     _stamp_row_tenant_writes(sync_session)
@@ -207,11 +210,28 @@ def test_row_strategy_rejects_cross_tenant_writes() -> None:
     post.tenant_id = "tenant_2"
     sync_session = cast(
         _SyncSessionLike,
-        SimpleNamespace(new=[], dirty=[post]),
+        SimpleNamespace(new=[], dirty=[post], deleted=[]),
     )
 
     with pytest.raises(
         ValueError, match="Row strategy detected a cross-tenant write for BlogPost"
+    ):
+        _stamp_row_tenant_writes(sync_session)
+
+    reset_current_row_tenant_id(tenant_token)
+
+
+def test_row_strategy_rejects_cross_tenant_deletes() -> None:
+    tenant_token = set_current_row_tenant_id("tenant_1")
+    post = BlogPost(title="Title", content="Body", author="Author")
+    post.tenant_id = "tenant_2"
+    sync_session = cast(
+        _SyncSessionLike,
+        SimpleNamespace(new=[], dirty=[], deleted=[post]),
+    )
+
+    with pytest.raises(
+        ValueError, match="Row strategy detected a cross-tenant delete for BlogPost"
     ):
         _stamp_row_tenant_writes(sync_session)
 

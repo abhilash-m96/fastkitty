@@ -1,4 +1,5 @@
 import logging
+import re
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from config.settings import get_settings, Settings
@@ -13,17 +14,38 @@ from services.tenancy_service import TenancyConfigService, TenancySecretsService
 
 logger = logging.getLogger(__name__)
 
+_TENANT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
 
 def get_tenant_id(
-    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    request: Request,
+    x_tenant_id: str | None = Header(None, alias="X-Tenant-ID"),
 ) -> str:
-    """Extract tenant ID from request header."""
-    if not x_tenant_id:
+    """Extract, validate, and normalize tenant ID from request header."""
+    tenant_headers = request.headers.getlist("x-tenant-id")
+    if len(tenant_headers) > 1:
+        logger.warning("Duplicate X-Tenant-ID headers detected: %s", tenant_headers)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Duplicate X-Tenant-ID headers detected",
+        )
+
+    if not x_tenant_id or not x_tenant_id.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tenant ID is required (X-Tenant-ID header missing)",
         )
-    return x_tenant_id.lower()
+
+    normalized_tenant_id = x_tenant_id.strip().lower()
+    if not _TENANT_ID_PATTERN.fullmatch(normalized_tenant_id):
+        safe_log_id = x_tenant_id[:64]
+        logger.warning("Invalid Tenant ID format: %r", safe_log_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tenant ID format. Must match ^[a-z0-9][a-z0-9_-]{0,62}$",
+        )
+
+    return normalized_tenant_id
 
 
 def get_tenancy_config_service(settings: Settings = Depends(get_settings)):
@@ -42,19 +64,30 @@ def get_tenant_config(
     Get tenant configuration.
     This is the key dependency that provides tenant context.
     """
-
-    # TODO raise HTTP exceptions based on errors
-    config = tenancy_config_service.get_tenant_config(tenant_id=tenant_id)
-
-    if not config:
-        logger.warning("Tenant '%s' not found or not configured", tenant_id)
+    try:
+        config = tenancy_config_service.get_tenant_config(tenant_id=tenant_id)
+    except ValueError:
+        logger.warning("Tenant %r not found or not configured", tenant_id[:64])
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tenant '{tenant_id}' not found or not configured",
         )
 
-    logger.debug("Resolved tenant configuration for '%s' (%s)", config.tenant_id, config.display_name)
-    enrich_span_with_tenant(tenant_id=config.tenant_id, display_name=config.display_name)
+    if not config:
+        logger.warning("Tenant %r not found or not configured", tenant_id[:64])
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_id}' not found or not configured",
+        )
+
+    logger.debug(
+        "Resolved tenant configuration for '%s' (%s)",
+        config.tenant_id,
+        config.display_name,
+    )
+    enrich_span_with_tenant(
+        tenant_id=config.tenant_id, display_name=config.display_name
+    )
     return config
 
 
@@ -79,7 +112,7 @@ def get_tenancy_secrets_service(settings: Settings = Depends(get_settings)):
 
 
 def get_tenant_secrets(
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_config: TenantConfig = Depends(require_active_tenant),
     tenancy_secrets_service: TenancySecretsService = Depends(
         get_tenancy_secrets_service
     ),
@@ -88,9 +121,22 @@ def get_tenant_secrets(
     Get tenant secrets.
     Only reached if tenant exists and is active.
     """
-    secrets: TenantSecrets = tenancy_secrets_service.get_tenant_secrets(
-        tenant_id=tenant_id
-    )
+    try:
+        secrets: TenantSecrets = tenancy_secrets_service.get_tenant_secrets(
+            tenant_id=tenant_config.tenant_id
+        )
+    except ValueError:
+        logger.warning("Secrets for tenant %r not found", tenant_config.tenant_id[:64])
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Secrets for tenant '{tenant_config.tenant_id}' not found",
+        )
+    if not secrets:
+        logger.warning("Secrets for tenant %r not found", tenant_config.tenant_id[:64])
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Secrets for tenant '{tenant_config.tenant_id}' not found",
+        )
     return secrets
 
 
@@ -113,7 +159,7 @@ def get_feature_config(key: str | None = None):
 
     def _get_feature_config(
         request: Request,
-        tenant_config: TenantConfig = Depends(get_tenant_config),
+        tenant_config: TenantConfig = Depends(require_active_tenant),
     ) -> FeatureConfig | None:
         feature_key = key or request.scope["route"].name
         features = tenant_config.features or {}
