@@ -47,3 +47,25 @@ model.tenant_id = current_tenant_id
 
 ### 3. Cross-Tenant Mutation & Delete Guards
 Before session flush (`before_flush`), FastKitty inspects all modified instances (including `session.new`, `session.dirty`, and `session.deleted`). If code attempts to mutate or delete a model instance whose `tenant_id` does not match the active request's tenant, FastKitty raises a `ValueError` before any SQL flush occurs.
+
+### 4. ORM Bulk Insert Rejection
+SQLAlchemy's ORM bulk insert construct (`insert(Model).values(...)`) bypasses the session identity map and `before_flush` lifecycle hooks. To prevent cross-tenant data corruption, FastKitty intercepts ORM insert execution and explicitly rejects bulk insert statements on `TenantScopedModel` classes:
+```python
+# Raises ValueError: Use session.add() for tenant-scoped models in row mode
+await session.execute(
+    insert(BlogPost).values(title="New Post", tenant_id="other_tenant")
+)
+```
+Always persist models via `session.add(instance)`, ensuring tenant write-stamping and validation hooks run.
+
+---
+
+## Limitations & Defense-in-Depth
+
+> [!WARNING]
+> **Core Table Expressions & Raw SQL Bypass**:  
+> FastKitty's automatic scoping is enforced at the SQLAlchemy ORM layer (`do_orm_execute` with `with_loader_criteria`).  
+> - High-level ORM operations (`select(BlogPost)`, bulk `update(BlogPost)`, bulk `delete(BlogPost)`) are automatically scoped.
+> - Low-level SQLAlchemy Core table expressions (`select(blog_posts_table)`) and raw SQL strings (`session.execute(text("SELECT * FROM blog_posts"))`) **bypass** ORM listeners.
+> 
+> For defense-in-depth in `row` tenancy mode, pair FastKitty with PostgreSQL **Row-Level Security (RLS)** policies scoped to a connection-level tenant session variable.

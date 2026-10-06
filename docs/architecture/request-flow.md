@@ -71,7 +71,7 @@ Depending on `USER_DATA_SOURCE`:
 - Fail-closes on tenant status: `get_db` directly depends on `require_active_tenant`, ensuring inactive tenants are rejected with `403 Forbidden` before a DB connection or session is ever allocated.
 - Fetches the tenant's database connection credentials from the active secrets provider.
 - Acquires or pools the async engine via the LRU cache.
-- For `schema` strategy, attaches an `after_begin` event listener executing transaction-scoped `SET LOCAL search_path TO "<schema>", public`.
+- For `schema` strategy, attaches an `after_begin` event listener executing transaction-scoped `SET LOCAL search_path TO "<schema>"`. Note that `public` is deliberately excluded so that an unmigrated tenant cannot accidentally read shared fallback tables in the public schema.
 - Yields the `AsyncSession` to the request scope.
 
 ### 5. Thin Route Delegation (`api/routes/v1/`)

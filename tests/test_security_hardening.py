@@ -895,3 +895,42 @@ def test_startup_validation_fails_helpfully_when_tenant_missing_from_secrets(
         match="Tenant 'ghost_tenant' is configured in tenancy config but has no matching secrets entry",
     ):
         validate_tenancy_strategy_startup(get_settings())
+
+
+# ---------------------------------------------------------------------------
+# Startup Warning When REQUIRE_TENANT_CLAIM Disabled in Non-Dev
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_warns_when_require_tenant_claim_disabled_in_prod(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Lifespan should log a warning when REQUIRE_TENANT_CLAIM is False in non-dev with JWT mode."""
+    import logging
+    from main import lifespan
+    from fastapi import FastAPI
+    from unittest.mock import AsyncMock
+
+    mock_app = FastAPI()
+    jwt_source = UserDataJWTSource(require_tenant_claim=False)
+
+    monkeypatch.setattr("main.settings.ENV", "prod")
+    monkeypatch.setattr("main.settings.USER_DATA_SOURCE", jwt_source)
+    monkeypatch.setattr("main.settings.TRUST_UPSTREAM_AUTH", True)
+    monkeypatch.setattr("main.settings.REQUIRE_TENANT_CLAIM", False)
+    monkeypatch.setattr("main.validate_tenancy_strategy_startup", lambda _: None)
+
+    mock_strategy = AsyncMock()
+    mock_strategy.setup = AsyncMock()
+    mock_strategy.teardown = AsyncMock()
+    monkeypatch.setattr("main.create_tenancy_strategy", lambda _: mock_strategy)
+
+    with caplog.at_level(logging.WARNING):
+        async with lifespan(mock_app):
+            pass
+
+    assert any(
+        "REQUIRE_TENANT_CLAIM is disabled in non-dev environment" in record.message
+        for record in caplog.records
+    )

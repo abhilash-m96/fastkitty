@@ -68,6 +68,7 @@ All settings can be configured via environment variables or `.env`:
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `LOGFIRE_ENABLED` | `bool` | `true` | Master toggle to enable or disable Logfire telemetry. |
+| `LOGFIRE_CAPTURE_HEADERS` | `bool` | `false` | When `false` (default), HTTP request headers are omitted from traces to prevent sensitive tokens (`Authorization`) and PII (`X-User-Email`) from being captured. Set to `true` only for local debugging. |
 | `LOGFIRE_SEND_TO_LOGFIRE` | `bool` | `false` | When `false`, logs are emitted only to the terminal console (zero cloud traffic). Set to `true` to export to Logfire cloud. |
 | `LOGFIRE_TOKEN` | `str \| null` | `null` | Your Logfire project write token (required if `LOGFIRE_SEND_TO_LOGFIRE=true`). |
 | `LOGFIRE_ENVIRONMENT` | `str \| null` | `null` | Deployment environment tag (`dev`, `staging`, `prod`). Defaults to `ENV` setting. |

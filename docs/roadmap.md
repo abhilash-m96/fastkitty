@@ -38,6 +38,7 @@ Instead of cloning a pre-baked blog app, developers will be prompted with an int
 - [ ] **AWS Secrets Manager & SSM Parameter Store**: Native production adapters for AWS-native stacks.
 - [ ] **Google Cloud Secret Manager**: Native adapter for GCP cloud environments.
 - [ ] **Redis / DynamoDB Config Providers**: High-performance, distributed key-value backends for live tenant feature flag updates without restarts.
+- [ ] **Tenancy Provider Caching & In-Memory TTL**: In-memory caching and TTL layer for remote config & secrets providers (Vault, Consul) to eliminate per-request network roundtrips.
 - [ ] **Environment-Aware Hot-Reloading**: Dynamic cache invalidation when tenant quotas or feature flags change upstream.
 
 ---

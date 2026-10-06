@@ -167,5 +167,39 @@ This enables instant filtering and tracing by user identity in your observabilit
 
 ---
 
+## Production Security Guards & Settings
+
+### 1. The Production Trust Guard (`TRUST_UPSTREAM_AUTH`)
+
+> [!CAUTION]
+> **Production Guard**: In any environment where `ENV != "dev"` (such as `staging` or `prod`), FastKitty **refuses to start** with a `RuntimeError` if `USER_DATA_SOURCE` is configured unless `TRUST_UPSTREAM_AUTH=true` is explicitly declared.
+
+Why this guard exists:
+- Because FastKitty trusts identity forwarded from the upstream gateway without re-verifying cryptographic signatures, running FastKitty directly exposed to the public Internet without a gateway would allow external attackers to spoof identity (e.g., sending arbitrary `X-User-ID` or forged unverified JWTs).
+- Declaring `TRUST_UPSTREAM_AUTH=true` is your explicit confirmation that:
+  1. An API Gateway, reverse proxy, or BFF sits in front of FastKitty.
+  2. The gateway is configured to strip incoming client headers matching your identity headers (`X-User-ID`, `X-User-Email`, etc.) before forwarding requests.
+  3. External clients cannot bypass the gateway to query FastKitty directly.
+
+### 2. Tenant Claim Enforcement (`REQUIRE_TENANT_CLAIM`)
+
+When operating in **`jwt`** or **`claims`** mode:
+- FastKitty inspects claims for a tenant identifier (`tenant_id`, `tid`, or `tenant`).
+- If a tenant claim is present, FastKitty validates that it matches the requested `X-Tenant-ID`. If they mismatch, FastKitty rejects the request with `403 Forbidden`.
+- **Fail Closed with `REQUIRE_TENANT_CLAIM=true`**: If a token or claims payload contains *no* tenant claim at all, FastKitty accepts it by default (assuming the gateway handled tenant verification). To enforce strict tenant claim presence, set:
+  ```env
+  REQUIRE_TENANT_CLAIM=true
+  ```
+  Or declare `"require_tenant_claim": true` directly inside your `USER_DATA_SOURCE` JSON config. When enabled, any token lacking a tenant claim matching `X-Tenant-ID` is rejected with `403 Forbidden`.
+
+### 3. Upstream Gateway Responsibilities
+
+To ensure end-to-end multi-tenant security:
+1. **Strip Inbound Identity Headers**: Ensure the gateway strips external `X-User-ID`, `X-User-Email`, `X-User-Roles`, or `X-User-Claims` headers sent by clients.
+2. **Inject Verified Tenant Claims**: If using JWT or Claims mode, ensure the gateway or auth provider embeds `tenant_id` or `tid` in the token claims payload.
+3. **Validate Tenant Access**: The gateway should verify that the user has permission to access the tenant requested in `X-Tenant-ID`.
+
+---
+
 > [!TIP]
 > **Keep Tokens Lean**: Fat tokens with hundreds of claims go stale quickly and force synchronous verification. Pass just enough identity attributes to scope requests, and allow services to hydrate domain data from their own database.

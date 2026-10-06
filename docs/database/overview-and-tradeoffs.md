@@ -39,6 +39,14 @@ However, because every tenant's `DatabaseConfig` independently defines `host`, `
 - **In `schema` strategy**: Tenants share a database cluster, isolated by schema namespaces.
 - **In `row` strategy**: Tenants share a single database and schema with row-level tenant filtering.
 
+> [!TIP]
+> **Connecting to Remote & Managed Databases (TLS/SSL)**:  
+> When connecting to managed cloud databases (such as AWS RDS, Aurora, GCP Cloud SQL, or Supabase), encrypted connections are typically required by default. Append `?ssl=require` to `database_uri` in your secrets configuration:
+> ```json
+> "database_uri": "postgresql+asyncpg://user:password@rds-host:5432/dbname?ssl=require"
+> ```
+> `asyncpg` automatically recognizes the query parameter and negotiates TLS encryption with the server.
+
 ---
 
 ## Guarantees & Known Limitations

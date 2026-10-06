@@ -92,7 +92,7 @@ flowchart LR
 
 ### 2. `schema` Strategy (PostgreSQL Schemas)
 - **Secret Requirement**: Shared DB URI + `"schema_name": "airbnb"` in each tenant's secret.
-- **Mechanism**: FastKitty automatically executes transaction-scoped `SET LOCAL search_path TO "airbnb", public` on transaction start via an `after_begin` hook, ensuring isolation survives rollbacks and prevents pooled connection leakage.
+- **Mechanism**: FastKitty automatically executes transaction-scoped `SET LOCAL search_path TO "airbnb"` on transaction start via an `after_begin` hook, ensuring isolation survives rollbacks, prevents pooled connection leakage, and avoids leaking unmigrated fallback data from `public`.
 - **Best For**: Mid-tier isolation without provisioning new database instances.
 
 ### 3. `database` Strategy (Dedicated Databases)

@@ -31,6 +31,21 @@ async def lifespan(app: FastAPI):
             "in non-dev environments (ENV != 'dev'). Ensure your upstream API Gateway strips "
             "untrusted user identity headers from external requests."
         )
+    if (
+        settings.USER_DATA_SOURCE is not None
+        and getattr(settings.USER_DATA_SOURCE, "type", None) in ("jwt", "claims")
+        and not (
+            settings.REQUIRE_TENANT_CLAIM
+            or getattr(settings.USER_DATA_SOURCE, "require_tenant_claim", False)
+        )
+        and settings.ENV.lower() != "dev"
+    ):
+        logger.warning(
+            "REQUIRE_TENANT_CLAIM is disabled in non-dev environment with %s mode. "
+            "Tokens without a tenant claim will be accepted for any X-Tenant-ID. "
+            "Ensure upstream gateway validates tenant claims or set REQUIRE_TENANT_CLAIM=true.",
+            settings.USER_DATA_SOURCE.type,
+        )
     validate_tenancy_strategy_startup(settings)
     tenancy_strategy = create_tenancy_strategy(settings)
     await tenancy_strategy.setup(app)

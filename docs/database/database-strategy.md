@@ -18,7 +18,7 @@ In `tenants_secrets.json`, each tenant defines its own complete database connect
   "netflix": {
     "tenant_id": "netflix",
     "database_config": {
-      "database_uri": "postgresql+asyncpg://netflix_admin:secret@netflix-cluster.rds.amazonaws.com:5432/netflix_db",
+      "database_uri": "postgresql+asyncpg://netflix_admin:secret@netflix-cluster.rds.amazonaws.com:5432/netflix_db?ssl=require",
       "host": "netflix-cluster.rds.amazonaws.com",
       "port": 5432,
       "username": "netflix_admin",
@@ -28,6 +28,9 @@ In `tenants_secrets.json`, each tenant defines its own complete database connect
   }
 }
 ```
+
+> [!TIP]
+> **TLS / SSL Connections**: For cloud-hosted databases (AWS RDS, Aurora, GCP Cloud SQL), append `?ssl=require` to `database_uri` to ensure encrypted connections. `asyncpg` automatically negotiates TLS.
 
 ---
 

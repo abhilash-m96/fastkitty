@@ -76,9 +76,9 @@ This isn't another framework with its own way of doing things *(IYKYK).* Instead
 
 - **Tenant context is explicit, not ambient**: Tenant identity flows through FastAPI's dependency injection — you can see it, trace it, and test it. There are no thread-locals, no request-scoped globals, no middleware that silently injects context. If a route needs tenant context, it declares it. If it doesn't, it doesn't.
 
-- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant with a missing schema_name in schema mode, or a conflicting DB URL in row mode, raises immediately — not on the first request from that tenant.
+- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant configured in config but missing from secrets, or missing `schema_name` in schema mode, raises immediately at startup — not on the first request from that tenant.
 
-- **Auth is a peer concern**: fastkit(ty) is intentionally auth-agnostic. Auth belongs upstream — in a gateway or dedicated auth service — not inside a multi-tenant service template. By the time a request reaches your service, auth is already done. The template reads already-validated identity from incoming requests via USER_DATA_SOURCE. It does not validate or issue tokens.
+- **Auth is a peer concern & Production Guards**: FastKitty is intentionally auth-agnostic. Auth belongs upstream — in an API Gateway or BFF — not inside microservices. FastKitty ingests already-validated identity via `USER_DATA_SOURCE`. In non-dev environments (`ENV != 'dev'`), FastKitty strictly enforces `TRUST_UPSTREAM_AUTH=true` at startup to ensure public identity headers cannot be spoofed. In JWT/Claims mode, `REQUIRE_TENANT_CLAIM=true` enforces that tokens cannot be replayed across tenants.
 
 - **Config and secrets are provider-agnostic**: The template ships with file-based providers for local development and HashiCorp Vault/Consul adapters for production. Swapping providers requires no changes to business logic — only config.
 
