@@ -98,7 +98,9 @@ def setup_telemetry(app: FastAPI, settings: Settings) -> None:
 
     # Instrument FastAPI requests and response lifecycles
     try:
-        logfire.instrument_fastapi(app, capture_headers=True)
+        logfire.instrument_fastapi(
+            app, capture_headers=settings.LOGFIRE_CAPTURE_HEADERS
+        )
     except Exception as e:
         logger.warning("Failed to instrument FastAPI with Logfire: %s", e)
 

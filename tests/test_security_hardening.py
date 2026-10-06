@@ -6,6 +6,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import jwt
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import (
@@ -774,3 +775,123 @@ async def test_lifespan_enforces_trust_upstream_auth_in_prod(
     with pytest.raises(RuntimeError, match="TRUST_UPSTREAM_AUTH must be set to True"):
         async with lifespan(dummy_app):
             pass
+
+
+# ---------------------------------------------------------------------------
+# Special Characters in DB Passwords & Config Repr Masking
+# ---------------------------------------------------------------------------
+
+
+def test_special_characters_in_password_url_encoded() -> None:
+    """Special characters in database passwords (@, /, :, #) must be safely encoded in URI."""
+    from schemas.tenancy import DatabaseConfig
+    from sqlalchemy.engine import make_url
+
+    complex_password = "p@ss/w:rd#1?query=yes&pct=100%"
+    db_config = DatabaseConfig(
+        host="db.internal",
+        port=5432,
+        username="tenant:admin@corp",
+        password=complex_password,
+        database_name="app_db",
+    )
+
+    url = make_url(db_config.database_uri)
+    assert url.host == "db.internal"
+    assert url.port == 5432
+    assert url.username == "tenant:admin@corp"
+    assert url.password == complex_password
+    assert url.database == "app_db"
+
+
+def test_database_config_repr_and_str_mask_password() -> None:
+    """DatabaseConfig __repr__ and __str__ must never leak the plaintext password or unmasked URI."""
+    from schemas.tenancy import DatabaseConfig
+
+    secret_pw = "super_secret_password_123"
+    db_config = DatabaseConfig(
+        host="db.internal",
+        port=5432,
+        username="app_user",
+        password=secret_pw,
+        database_name="app_db",
+    )
+
+    repr_str = repr(db_config)
+    str_str = str(db_config)
+
+    assert secret_pw not in repr_str
+    assert secret_pw not in str_str
+    assert "password='***'" in repr_str
+    assert "app_user:***@db.internal" in repr_str
+
+
+# ---------------------------------------------------------------------------
+# Require Tenant Claim Setting in JWT & Claims Sources
+# ---------------------------------------------------------------------------
+
+
+def test_jwt_mode_rejects_missing_tenant_claim_when_required() -> None:
+    """When require_tenant_claim=True, JWT without tenant claim must be rejected."""
+    source = UserDataJWTSource(require_tenant_claim=True)
+    token = jwt.encode({"sub": "user_1"}, "secret", algorithm="HS256")
+
+    with pytest.raises(
+        PermissionError,
+        match="Token is missing required tenant claim matching requested tenant 'tenant_a'",
+    ):
+        _extract_jwt_token(source, token, expected_tenant_id="tenant_a")
+
+
+def test_claims_mode_rejects_missing_tenant_claim_when_required() -> None:
+    """When require_tenant_claim=True, claims header without tenant claim must be rejected."""
+    source = UserDataSingleHeaderClaimsSource(require_tenant_claim=True)
+    claims_json = '{"id": "user_1"}'
+
+    with pytest.raises(
+        PermissionError,
+        match="Claims header is missing required tenant claim matching requested tenant 'tenant_a'",
+    ):
+        _extract_single_header_claims(
+            source, claims_json, expected_tenant_id="tenant_a"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helpful Startup Failure When Tenant Missing from Secrets
+# ---------------------------------------------------------------------------
+
+
+def test_startup_validation_fails_helpfully_when_tenant_missing_from_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tenant configured in config provider but missing from secrets provider must fail fast with a helpful error."""
+    from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
+    from schemas.tenancy import TenantMetadata
+
+    class FakeConfigProvider:
+        def get_tenants(self) -> list[TenantMetadata]:
+            return [
+                TenantMetadata(
+                    tenant_id="ghost_tenant", display_name="Ghost", is_active=True
+                )
+            ]
+
+    class FakeSecretsProvider:
+        def get_secrets(self, tenant_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "config.tenancy_strategy_validation.TenancyConfigProviderFactory.create",
+        lambda _: FakeConfigProvider(),
+    )
+    monkeypatch.setattr(
+        "config.tenancy_strategy_validation.TenancySecretsProviderFactory.create",
+        lambda _: FakeSecretsProvider(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Tenant 'ghost_tenant' is configured in tenancy config but has no matching secrets entry",
+    ):
+        validate_tenancy_strategy_startup(get_settings())

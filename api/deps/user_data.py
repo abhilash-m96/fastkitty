@@ -107,6 +107,13 @@ def _extract_jwt_token(
         token_tenant = (
             claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
         )
+        must_have_claim = (
+            source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
+        )
+        if token_tenant is None and must_have_claim:
+            raise PermissionError(
+                f"Token is missing required tenant claim matching requested tenant '{expected_tenant_id}'"
+            )
         if (
             token_tenant is not None
             and str(token_tenant).strip().lower() != expected_tenant_id.strip().lower()
@@ -151,6 +158,13 @@ def _extract_single_header_claims(
         claims_tenant = (
             claims.get("tenant_id") or claims.get("tid") or claims.get("tenant")
         )
+        must_have_claim = (
+            source.require_tenant_claim or get_settings().REQUIRE_TENANT_CLAIM
+        )
+        if claims_tenant is None and must_have_claim:
+            raise PermissionError(
+                f"Claims header is missing required tenant claim matching requested tenant '{expected_tenant_id}'"
+            )
         if (
             claims_tenant is not None
             and str(claims_tenant).strip().lower() != expected_tenant_id.strip().lower()

@@ -1,5 +1,16 @@
+import re
+import urllib.parse
 from typing import Any, Literal, Optional, Self
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.engine import make_url
+
+
+def _mask_url(url: str) -> str:
+    """Mask credentials in a database connection URL for safe logging and repr."""
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:
+        return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
 
 
 class DatabaseConfig(BaseModel):
@@ -30,6 +41,20 @@ class DatabaseConfig(BaseModel):
         description="The number of seconds to recycle the database connections",
     )
 
+    def __repr__(self) -> str:
+        masked_uri = _mask_url(self.database_uri) if self.database_uri else ""
+        return (
+            f"DatabaseConfig(dialect={self.dialect!r}, host={self.host!r}, "
+            f"port={self.port!r}, username={self.username!r}, password='***', "
+            f"database_name={self.database_name!r}, schema_name={self.schema_name!r}, "
+            f"database_uri={masked_uri!r}, pool_pre_ping={self.pool_pre_ping}, "
+            f"pool_size={self.pool_size}, max_overflow={self.max_overflow}, "
+            f"pool_recycle={self.pool_recycle})"
+        )
+
+    def __str__(self) -> str:
+        return repr(self)
+
     @model_validator(mode="after")
     def set_uri(self) -> Self:
         """
@@ -54,8 +79,10 @@ class DatabaseConfig(BaseModel):
                     )
                     break
         else:
+            quoted_user = urllib.parse.quote(self.username, safe="")
+            quoted_pass = urllib.parse.quote(self.password, safe="")
             self.database_uri = (
-                f"{self.dialect}://{self.username}:{self.password}"
+                f"{self.dialect}://{quoted_user}:{quoted_pass}"
                 f"@{self.host}:{self.port}/{self.database_name}"
             )
         return self

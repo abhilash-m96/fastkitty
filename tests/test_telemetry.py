@@ -47,7 +47,7 @@ def test_setup_telemetry_default_console_mode():
             service_version=settings.VERSION,
             console=True,
         )
-        mock_fastapi.assert_called_once_with(app, capture_headers=True)
+        mock_fastapi.assert_called_once_with(app, capture_headers=False)
         mock_pydantic.assert_called_once()
         mock_sa.assert_called_once()
 
