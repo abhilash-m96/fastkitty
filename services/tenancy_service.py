@@ -2,6 +2,7 @@ import logging
 from config.tenancy_providers import (
     TenancyConfigProvider,
     TenancySecretsProvider,
+    TenantNotFoundError,
 )
 from schemas.tenancy import TenantConfig, TenantSecrets, TenantMetadata
 
@@ -24,9 +25,10 @@ class TenancyConfigService:
         """Retrieve tenant configuration."""
         config = self._provider.get_config(tenant_id)
 
-        # TODO implement custom exceptions?
         if not config:
-            raise ValueError(f"Tenant '{tenant_id}' not found or not configured")
+            raise TenantNotFoundError(
+                f"Tenant '{tenant_id}' not found or not configured"
+            )
 
         logger.debug("Retrieved configuration for tenant '%s'", tenant_id)
         return config
@@ -43,7 +45,7 @@ class TenancySecretsService:
         secrets = self._provider.get_secrets(tenant_id)
 
         if not secrets:
-            raise ValueError(
+            raise TenantNotFoundError(
                 f"Tenant '{tenant_id}' secrets not found or not configured"
             )
 

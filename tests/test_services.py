@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from config.tenancy_providers import TenantNotFoundError
 from models.posts import BlogPost
 from schemas.posts import BlogPostCreate, BlogPostUpdate
 from schemas.tenancy import TenantConfig, TenantMetadata, TenantSecrets
@@ -166,7 +167,7 @@ def test_tenancy_config_service_raises_for_missing_config() -> None:
     service = TenancyConfigService(provider)
 
     with pytest.raises(
-        ValueError, match="Tenant 'tenant_1' not found or not configured"
+        TenantNotFoundError, match="Tenant 'tenant_1' not found or not configured"
     ):
         service.get_tenant_config("tenant_1")
 
@@ -195,7 +196,8 @@ def test_tenancy_secrets_service_raises_for_missing_secrets() -> None:
     service = TenancySecretsService(provider)
 
     with pytest.raises(
-        ValueError, match="Tenant 'tenant_1' secrets not found or not configured"
+        TenantNotFoundError,
+        match="Tenant 'tenant_1' secrets not found or not configured",
     ):
         service.get_tenant_secrets("tenant_1")
 

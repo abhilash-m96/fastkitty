@@ -1039,3 +1039,222 @@ async def test_lifespan_warns_when_require_tenant_claim_disabled_in_prod(
         "REQUIRE_TENANT_CLAIM is disabled in non-dev environment" in record.message
         for record in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# Tenant Isolation & Validation Hardening (Review Fixes)
+# ---------------------------------------------------------------------------
+
+
+def test_startup_validation_rejects_duplicate_schema_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup validation in schema mode must reject duplicate schema_names across tenants."""
+    from config.tenancy_strategy_validation import validate_tenancy_strategy_startup
+    from schemas.tenancy import TenantMetadata
+
+    class FakeConfigProvider:
+        def get_tenants(self) -> list[TenantMetadata]:
+            return [
+                TenantMetadata(
+                    tenant_id="tenant_a", display_name="Tenant A", is_active=True
+                ),
+                TenantMetadata(
+                    tenant_id="tenant_b", display_name="Tenant B", is_active=True
+                ),
+            ]
+
+    class FakeSecretsProvider:
+        def get_secrets(self, tenant_id: str) -> TenantSecrets:
+            return TenantSecrets(
+                tenant_id=tenant_id,
+                database_config=DatabaseConfig(
+                    host="localhost",
+                    port=5432,
+                    username="user",
+                    password="password",
+                    database_name="db",
+                    schema_name="shared_schema",
+                ),
+            )
+
+    settings = get_settings().model_copy(update={"TENANCY_DB_STRATEGY": "schema"})
+    monkeypatch.setattr(
+        "config.tenancy_strategy_validation.TenancyConfigProviderFactory.create",
+        lambda _: FakeConfigProvider(),
+    )
+    monkeypatch.setattr(
+        "config.tenancy_strategy_validation.TenancySecretsProviderFactory.create",
+        lambda _: FakeSecretsProvider(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Duplicate schema_name 'shared_schema' detected: used by both 'tenant_a' and 'tenant_b'",
+    ):
+        validate_tenancy_strategy_startup(settings)
+
+
+def test_file_providers_reject_mismatched_key_and_inner_tenant_id(tmp_path) -> None:
+    """File config & secrets providers must reject entries where JSON key != inner tenant_id."""
+    from config.tenancy_providers import (
+        FileTenancyConfigProvider,
+        FileTenancySecretsProvider,
+    )
+
+    bad_config = tmp_path / "bad_config.json"
+    bad_config.write_text(
+        json.dumps(
+            {
+                "alice": {
+                    "tenant_id": "bob",
+                    "display_name": "Alice as Bob",
+                    "is_active": True,
+                }
+            }
+        )
+    )
+    config_provider = FileTenancyConfigProvider(str(bad_config))
+    with pytest.raises(
+        ValueError,
+        match="Tenancy config key 'alice' does not match inner tenant_id 'bob'",
+    ):
+        config_provider.get_tenants()
+
+    with pytest.raises(
+        ValueError,
+        match="Tenancy config key 'alice' does not match inner tenant_id 'bob'",
+    ):
+        config_provider.get_config("alice")
+
+    bad_secrets = tmp_path / "bad_secrets.json"
+    bad_secrets.write_text(
+        json.dumps(
+            {
+                "alice": {
+                    "tenant_id": "bob",
+                    "database_config": {
+                        "host": "localhost",
+                        "port": 5432,
+                        "username": "user",
+                        "password": "password",
+                        "database_name": "bob_db",
+                    },
+                }
+            }
+        )
+    )
+    secrets_provider = FileTenancySecretsProvider(str(bad_secrets))
+    with pytest.raises(
+        ValueError,
+        match="Tenancy secrets key 'alice' does not match inner tenant_id 'bob'",
+    ):
+        secrets_provider.get_secrets("alice")
+
+
+def test_runtime_dependencies_reject_tenant_id_mismatches() -> None:
+    """Runtime dependencies must return 500 if resolved config or secrets tenant_id mismatches."""
+    from fastapi import HTTPException
+    from api.deps.tenancy import get_tenant_config, get_tenant_secrets
+    from unittest.mock import Mock
+
+    mock_config_svc = Mock()
+    mock_config_svc.get_tenant_config.return_value = TenantConfig(
+        tenant_id="bob", display_name="Bob", is_active=True
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        get_tenant_config(tenant_id="alice", tenancy_config_service=mock_config_svc)
+    assert exc_info.value.status_code == 500
+    assert "Tenant configuration ID mismatch" in exc_info.value.detail
+
+    mock_secrets_svc = Mock()
+    mock_secrets_svc.get_tenant_secrets.return_value = TenantSecrets(
+        tenant_id="mallory",
+        database_config=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            username="user",
+            password="password",
+            database_name="mallory_db",
+        ),
+    )
+    alice_config = TenantConfig(tenant_id="alice", display_name="Alice", is_active=True)
+    with pytest.raises(HTTPException) as exc_info:
+        get_tenant_secrets(
+            tenant_config=alice_config,
+            tenancy_secrets_service=mock_secrets_svc,
+        )
+    assert exc_info.value.status_code == 500
+    assert "Tenant secrets ID mismatch" in exc_info.value.detail
+
+
+def test_active_tenant_with_missing_secrets_returns_500() -> None:
+    """An active tenant whose secrets are missing must result in 500 Internal Server Error."""
+    from fastapi import HTTPException
+    from api.deps.tenancy import get_tenant_secrets
+    from config.tenancy_providers import TenantNotFoundError
+    from unittest.mock import Mock
+
+    mock_secrets_svc = Mock()
+    mock_secrets_svc.get_tenant_secrets.side_effect = TenantNotFoundError("missing")
+    alice_config = TenantConfig(tenant_id="alice", display_name="Alice", is_active=True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_tenant_secrets(
+            tenant_config=alice_config,
+            tenancy_secrets_service=mock_secrets_svc,
+        )
+    assert exc_info.value.status_code == 500
+    assert (
+        "Secrets for active tenant 'alice' are not configured" in exc_info.value.detail
+    )
+
+
+def test_secret_str_masks_tokens_in_settings_repr() -> None:
+    """Vault and Consul tokens must be masked with SecretStr in settings repr."""
+    from config.settings import (
+        HCConsulTenancyConfigConnection,
+        HCVaultTenancySecretsConnection,
+    )
+    from pydantic import SecretStr
+
+    consul_conn = HCConsulTenancyConfigConnection(
+        url="https://consul.example.com",
+        token="my-super-secret-consul-token",
+        consul_prefix="tenants/config/",
+    )
+    assert "my-super-secret-consul-token" not in repr(consul_conn)
+    assert "**********" in repr(consul_conn)
+    assert isinstance(consul_conn.token, SecretStr)
+
+    vault_conn = HCVaultTenancySecretsConnection(
+        url="https://vault.example.com",
+        token="my-super-secret-vault-token",
+        vault_kv_path="secret/data/tenants/{tenant_id}",
+    )
+    assert "my-super-secret-vault-token" not in repr(vault_conn)
+    assert "**********" in repr(vault_conn)
+    assert isinstance(vault_conn.token, SecretStr)
+
+
+def test_blog_post_content_max_length_validation() -> None:
+    """BlogPostCreate and BlogPostUpdate must enforce max_length=50,000 on content."""
+    from pydantic import ValidationError
+    from schemas.posts import BlogPostCreate, BlogPostUpdate
+
+    too_long = "a" * 50_001
+    with pytest.raises(ValidationError):
+        BlogPostCreate(title="Test", content=too_long)
+
+    with pytest.raises(ValidationError):
+        BlogPostUpdate(content=too_long)
+
+    valid = BlogPostCreate(title="Test", content="a" * 50_000)
+    assert len(valid.content) == 50_000
+
+
+def test_hello_route_safe_string_substitution(client: TestClient) -> None:
+    """Hello route must use safe substitution and not fail on unmatched braces."""
+    response = client.get("/v1/hello", headers={"X-Tenant-ID": "tenant_1"})
+    assert response.status_code == 200
+    assert "Hello" in response.json()["message"]

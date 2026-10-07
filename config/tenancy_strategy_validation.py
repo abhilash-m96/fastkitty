@@ -11,7 +11,6 @@ from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
 def validate_database_config_for_strategy(
     db_config: DatabaseConfig,
     strategy: TenancyDBStrategy,
-    *,
     tenant_id: str | None = None,
 ) -> None:
     """Validate the DB payload shape required by the selected tenancy strategy."""
@@ -44,6 +43,7 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
         settings.TENANCY_SECRETS_CONNECTION
     )
 
+    seen_schemas: dict[str, str] = {}
     for tenant_id in _iter_known_tenant_ids(config_provider):
         tenant_secrets = secrets_provider.get_secrets(tenant_id)
         if tenant_secrets is None:
@@ -55,3 +55,11 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
             settings.TENANCY_DB_STRATEGY,
             tenant_id=tenant_id,
         )
+        if settings.TENANCY_DB_STRATEGY == "schema":
+            schema_name = tenant_secrets.database_config.schema_name
+            if schema_name:
+                if schema_name in seen_schemas:
+                    raise ValueError(
+                        f"Duplicate schema_name '{schema_name}' detected: used by both '{seen_schemas[schema_name]}' and '{tenant_id}'. Each tenant must have a unique schema_name when TENANCY_DB_STRATEGY='schema'."
+                    )
+                seen_schemas[schema_name] = tenant_id

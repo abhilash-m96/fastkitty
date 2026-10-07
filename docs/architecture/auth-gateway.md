@@ -257,6 +257,10 @@ When operating in **`jwt`** or **`claims`** mode:
   ```
   Or declare `"require_tenant_claim": true` directly inside your `USER_DATA_SOURCE` JSON config. When enabled, any token lacking a tenant claim matching `X-Tenant-ID` is rejected with `403 Forbidden`.
 
+> [!WARNING]
+> **Cryptographic Authentication Notice**:
+> FastKitty's JWT parser decodes unverified payload claims and explicitly blocks `alg: "none"`. However, **it does not cryptographically authenticate tokens or verify signatures.** Signature verification, token expiry checks, and identity validation MUST be enforced upstream at your API Gateway or reverse proxy. Additionally, tenant claim matching is **opt-in** (`REQUIRE_TENANT_CLAIM=false` by default); tokens without a tenant claim will pass through unless `REQUIRE_TENANT_CLAIM=true` is explicitly enabled.
+
 ### 3. Upstream Gateway Responsibilities
 
 To ensure end-to-end multi-tenant security:

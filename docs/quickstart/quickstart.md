@@ -63,6 +63,8 @@ Open the interactive Swagger UI at `http://localhost:8000/docs`.
 To run both PostgreSQL and the FastKitty API completely inside Docker:
 
 ```bash
+cp .env.example .env
+cp tenants_secrets.docker.example.json tenants_secrets.docker.json
 docker compose up --build -d
 ```
 

@@ -36,8 +36,7 @@ services:
     volumes:
       - .:/app
     stdin_open: true
-    tty: true
-    command: sh -c "if [ ! -f tenants_secrets.docker.json ] && [ -f tenants_secrets.docker.example.json ]; then cp tenants_secrets.docker.example.json tenants_secrets.docker.json; fi && uv run alembic upgrade head && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    command: sh -c "if [ ! -f tenants_secrets.docker.json ] && [ -f tenants_secrets.docker.example.json ]; then cp tenants_secrets.docker.example.json tenants_secrets.docker.json 2>/dev/null || true; fi && uv run --frozen --no-dev alembic upgrade head && uv run --frozen --no-dev uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 
 volumes:
