@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 import json
 from typing import Annotated, ClassVar, Literal, Union
 
@@ -14,10 +14,12 @@ class TenancyConfigFileConnection(BaseModel):
 
 
 class TenancyConfigDBConnection(DatabaseConfig):
+    model_config = ConfigDict(hide_input_in_errors=True)
     type: Literal["db"] = "db"
 
 
 class HCConsulTenancyConfigConnection(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
     type: Literal["hc_consul"] = "hc_consul"
     url: str
     token: SecretStr | None = Field(default=None)
@@ -40,6 +42,7 @@ class TenancySecretsFileConnection(BaseModel):
 
 
 class TenancySecretsGCPConnection(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
     type: Literal["gcp"] = "gcp"
     project_id: str
     secret_id: str
@@ -48,6 +51,7 @@ class TenancySecretsGCPConnection(BaseModel):
 
 
 class HCVaultTenancySecretsConnection(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
     type: Literal["hc_vault"] = "hc_vault"
     url: str
     token: SecretStr
@@ -137,7 +141,10 @@ UserDataSource = Annotated[
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="allow"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="allow",
+        hide_input_in_errors=True,
     )
 
     # App Settings

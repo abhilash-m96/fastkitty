@@ -1,12 +1,9 @@
 from unittest.mock import MagicMock, patch
-import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
 
 from config.settings import Settings
 from config.telemetry import (
-    LogfireTenantMiddleware,
     enrich_span_with_tenant,
     enrich_span_with_user,
     setup_telemetry,
@@ -127,61 +124,4 @@ def test_enrich_span_with_user_when_not_recording():
 
     with patch.object(trace, "get_current_span", return_value=mock_span):
         enrich_span_with_user(user_id="user_1")
-        mock_span.set_attribute.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_logfire_tenant_middleware_tags_span():
-    app = FastAPI()
-    app.add_middleware(LogfireTenantMiddleware)
-
-    @app.get("/ping")
-    async def ping():
-        return {"ping": "pong"}
-
-    mock_span = MagicMock()
-    mock_span.is_recording.return_value = True
-
-    with patch.object(trace, "get_current_span", return_value=mock_span):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(
-                "/ping",
-                headers={
-                    "X-Tenant-ID": "Tenant_Alpha",
-                    "X-User-ID": "User_Beta",
-                },
-            )
-
-        assert response.status_code == 200
-        mock_span.set_attribute.assert_any_call("tenant.id", "tenant_alpha")
-        mock_span.set_attribute.assert_any_call("tenant_id", "tenant_alpha")
-        mock_span.set_attribute.assert_any_call("user.id", "User_Beta")
-        mock_span.set_attribute.assert_any_call("user_id", "User_Beta")
-
-
-@pytest.mark.asyncio
-async def test_logfire_tenant_middleware_ignores_invalid_headers():
-    app = FastAPI()
-    app.add_middleware(LogfireTenantMiddleware)
-
-    @app.get("/ping")
-    async def ping():
-        return {"ping": "pong"}
-
-    mock_span = MagicMock()
-    mock_span.is_recording.return_value = True
-
-    with patch.object(trace, "get_current_span", return_value=mock_span):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(
-                "/ping",
-                headers={
-                    "X-Tenant-ID": "invalid/tenant;attack",
-                    "X-User-ID": "bad user with spaces!",
-                },
-            )
-
-        assert response.status_code == 200
         mock_span.set_attribute.assert_not_called()

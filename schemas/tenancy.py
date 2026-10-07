@@ -1,7 +1,7 @@
 import re
 import urllib.parse
 from typing import Any, Literal, Optional, Self
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.engine import make_url
 
 
@@ -15,6 +15,8 @@ def _mask_url(url: str) -> str:
 
 class DatabaseConfig(BaseModel):
     """Schema for database configuration."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     dialect: str = Field(
         default="postgresql", description="Database dialect (e.g., postgresql, mysql)"
@@ -130,6 +132,8 @@ class TenantConfig(BaseModel):
 
 class TenantSecrets(BaseModel):
     """Schema for tenant secret configuration."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     tenant_id: str = Field(..., description="The ID of the tenant")
     database_config: DatabaseConfig = Field(

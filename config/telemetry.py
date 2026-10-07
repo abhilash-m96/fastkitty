@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import logging
-import re
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 import logfire
 from opentelemetry import trace
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
 
 from config.settings import Settings
 
@@ -38,39 +35,6 @@ def enrich_span_with_user(
         # Note: email is omitted from telemetry spans to prevent PII leakage
         if roles:
             span.set_attribute("user.roles", roles)
-
-
-_SAFE_HEADER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
-
-
-class LogfireTenantMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware that captures tenant and user headers from incoming HTTP requests
-    and attaches them as indexed attributes on the root Logfire/OTel span.
-    Only attaches sanitized identifiers matching safe regex to prevent injecting arbitrary payloads.
-    """
-
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        span = trace.get_current_span()
-        if span.is_recording():
-            tenant_id = request.headers.get("x-tenant-id")
-            if tenant_id:
-                clean_tenant = tenant_id.strip().lower()
-                if _SAFE_HEADER_PATTERN.fullmatch(clean_tenant):
-                    span.set_attribute("tenant.id", clean_tenant)
-                    span.set_attribute("tenant_id", clean_tenant)
-
-            user_id = request.headers.get("x-user-id")
-            if user_id:
-                clean_user = user_id.strip()
-                if _SAFE_HEADER_PATTERN.fullmatch(clean_user):
-                    span.set_attribute("user.id", clean_user)
-                    span.set_attribute("user_id", clean_user)
-
-        response = await call_next(request)
-        return response
 
 
 def setup_telemetry(app: FastAPI, settings: Settings) -> None:
@@ -122,8 +86,6 @@ def setup_telemetry(app: FastAPI, settings: Settings) -> None:
     # Bridge Python standard logging to Logfire spans
     logging.getLogger().addHandler(logfire.LogfireLoggingHandler())
 
-    # Add Tenant / User context enrichment middleware
-    app.add_middleware(LogfireTenantMiddleware)
     logger.info(
         "Logfire telemetry initialized (service=%s, env=%s, send_to_cloud=%s)",
         service_name,
