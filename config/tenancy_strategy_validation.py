@@ -5,7 +5,7 @@ from config.tenancy_providers_factory import (
     TenancyConfigProviderFactory,
     TenancySecretsProviderFactory,
 )
-from schemas.tenancy import DatabaseConfig, TenancyDBStrategy
+from schemas.tenancy import _mask_url, DatabaseConfig, TenancyDBStrategy
 
 
 def validate_database_config_for_strategy(
@@ -43,23 +43,66 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
         settings.TENANCY_SECRETS_CONNECTION
     )
 
+    strategy = settings.TENANCY_DB_STRATEGY
+    seen_database_uris: dict[str, str] = {}
+    first_shared_tenant: str | None = None
+    first_shared_uri: str | None = None
+    first_pool_settings: tuple[int, int, int, bool] | None = None
     seen_schemas: dict[str, str] = {}
+
     for tenant_id in _iter_known_tenant_ids(config_provider):
         tenant_secrets = secrets_provider.get_secrets(tenant_id)
         if tenant_secrets is None:
             raise ValueError(
                 f"Tenant '{tenant_id}' is configured in tenancy config but has no matching secrets entry in tenancy secrets provider."
             )
+        db_config = tenant_secrets.database_config
         validate_database_config_for_strategy(
-            tenant_secrets.database_config,
-            settings.TENANCY_DB_STRATEGY,
+            db_config,
+            strategy,
             tenant_id=tenant_id,
         )
-        if settings.TENANCY_DB_STRATEGY == "schema":
-            schema_name = tenant_secrets.database_config.schema_name
-            if schema_name:
-                if schema_name in seen_schemas:
+
+        db_uri = db_config.database_uri
+        if strategy == "database":
+            if db_uri in seen_database_uris:
+                first_tenant = seen_database_uris[db_uri]
+                masked_uri = _mask_url(db_uri)
+                raise ValueError(
+                    f"Duplicate database_uri '{masked_uri}' detected: used by both '{first_tenant}' and '{tenant_id}'. Each tenant must have a unique database_uri when TENANCY_DB_STRATEGY='database'."
+                )
+            seen_database_uris[db_uri] = tenant_id
+
+        elif strategy in ("row", "schema"):
+            current_pool_settings = (
+                db_config.pool_size,
+                db_config.max_overflow,
+                db_config.pool_recycle,
+                db_config.pool_pre_ping,
+            )
+            if first_shared_uri is None:
+                first_shared_uri = db_uri
+                first_shared_tenant = tenant_id
+                first_pool_settings = current_pool_settings
+            else:
+                if db_uri != first_shared_uri:
+                    masked_first = _mask_url(first_shared_uri)
+                    masked_current = _mask_url(db_uri)
                     raise ValueError(
-                        f"Duplicate schema_name '{schema_name}' detected: used by both '{seen_schemas[schema_name]}' and '{tenant_id}'. Each tenant must have a unique schema_name when TENANCY_DB_STRATEGY='schema'."
+                        f"Conflicting database_uri detected for {strategy} strategy: '{first_shared_tenant}' uses '{masked_first}' but '{tenant_id}' uses '{masked_current}'. All tenants must share the same database_uri when TENANCY_DB_STRATEGY='{strategy}'."
                     )
-                seen_schemas[schema_name] = tenant_id
+                if current_pool_settings != first_pool_settings:
+                    raise ValueError(
+                        f"Conflicting pool settings detected for {strategy} strategy between '{first_shared_tenant}' and '{tenant_id}' for database URL '{_mask_url(db_uri)}'. All tenants must have identical pool settings when TENANCY_DB_STRATEGY='{strategy}'."
+                    )
+
+            if strategy == "schema":
+                schema_name = db_config.schema_name
+                if schema_name:
+                    canonical_schema = schema_name.lower()[:63]
+                    if canonical_schema in seen_schemas:
+                        first_tenant = seen_schemas[canonical_schema]
+                        raise ValueError(
+                            f"Duplicate schema_name '{schema_name}' detected: used by both '{first_tenant}' and '{tenant_id}'. Each tenant must have a unique schema_name when TENANCY_DB_STRATEGY='schema'."
+                        )
+                    seen_schemas[canonical_schema] = tenant_id

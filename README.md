@@ -76,7 +76,12 @@ This isn't another framework with its own way of doing things *(IYKYK).* Instead
 
 - **Tenant context is explicit, not ambient**: Tenant identity flows through FastAPI's dependency injection — you can see it, trace it, and test it. There are no thread-locals, no request-scoped globals, no middleware that silently injects context. If a route needs tenant context, it declares it. If it doesn't, it doesn't.
 
-- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. The selected DB strategy is validated against all discoverable tenant secrets at startup. A tenant configured in config but missing from secrets, or missing `schema_name` in schema mode, raises immediately at startup — not on the first request from that tenant.
+- **Fail fast at startup**: Misconfiguration surfaces before traffic hits. During boot, `validate_tenancy_strategy_startup` cross-validates the active tenancy strategy across all discoverable tenants:
+  - Every tenant defined in tenancy configuration must have a matching entry in tenancy secrets.
+  - In `database` strategy, each tenant must have a unique `database_uri` (preventing accidental cross-tenant data sharing).
+  - In `row` and `schema` strategies, all tenants must share an identical `database_uri` and matching pool settings (`pool_size`, `max_overflow`, `pool_recycle`, `pool_pre_ping`).
+  - In `schema` strategy, each tenant must define `schema_name`, and schemas must be unique (validated case-insensitively and after PostgreSQL's 63-byte identifier truncation).
+  - Any mismatch raises immediately at startup with masked connection URIs (passwords never leak) — not on the first request from a tenant.
 
 - **Auth is a peer concern & Production Guards**: FastKitty is intentionally auth-agnostic. Auth belongs upstream — in an API Gateway or BFF — not inside microservices. FastKitty ingests already-validated identity via `USER_DATA_SOURCE`. In non-dev environments (`ENV != 'dev'`), FastKitty strictly enforces `TRUST_UPSTREAM_AUTH=true` at startup to ensure public identity headers cannot be spoofed. In JWT/Claims mode, `REQUIRE_TENANT_CLAIM=true` enforces that tokens cannot be replayed across tenants.
 

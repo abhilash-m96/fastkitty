@@ -1205,9 +1205,8 @@ def test_active_tenant_with_missing_secrets_returns_500() -> None:
             tenancy_secrets_service=mock_secrets_svc,
         )
     assert exc_info.value.status_code == 500
-    assert (
-        "Secrets for active tenant 'alice' are not configured" in exc_info.value.detail
-    )
+    assert exc_info.value.detail == "Tenant is not correctly configured"
+    assert "alice" not in exc_info.value.detail
 
 
 def test_secret_str_masks_tokens_in_settings_repr() -> None:
@@ -1258,3 +1257,100 @@ def test_hello_route_safe_string_substitution(client: TestClient) -> None:
     response = client.get("/v1/hello", headers={"X-Tenant-ID": "tenant_1"})
     assert response.status_code == 200
     assert "Hello" in response.json()["message"]
+
+
+# ---------------------------------------------------------------------------
+# Mask Secrets in Pydantic Validation Errors
+# ---------------------------------------------------------------------------
+
+
+def test_settings_validation_error_masks_secrets_on_missing_required_field() -> None:
+    """Pydantic validation errors for Settings must not leak tokens when fields are missing."""
+    from pydantic import ValidationError
+
+    sentinel_token = "hvs.SENTINEL"
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            TENANCY_SECRETS_CONNECTION={
+                "type": "hc_vault",
+                "token": sentinel_token,
+            }
+        )
+
+    err = str(exc_info.value)
+    assert sentinel_token not in err
+    assert "url" in err
+
+
+def test_settings_validation_error_masks_secrets_on_wrong_discriminator() -> None:
+    """Pydantic validation errors for Settings must not leak tokens on invalid discriminator tag."""
+    from pydantic import ValidationError
+
+    sentinel_token = "hvs.SENTINEL"
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            TENANCY_SECRETS_CONNECTION={
+                "type": "vault",
+                "token": sentinel_token,
+            }
+        )
+
+    err = str(exc_info.value)
+    assert sentinel_token not in err
+    assert "TENANCY_SECRETS_CONNECTION" in err
+
+
+def test_tenant_secrets_validation_error_masks_password() -> None:
+    """TenantSecrets validation errors must not leak database passwords."""
+    from pydantic import ValidationError
+
+    sentinel_password = "SUPER_SECRET_TENANT_DB_PASS"
+    with pytest.raises(ValidationError) as exc_info:
+        TenantSecrets(
+            tenant_id="t1",
+            database_config={
+                "dialect": "postgresql",
+                "host": "localhost",
+                "port": "bad_port_not_int",
+                "username": "user",
+                "password": sentinel_password,
+                "database_name": "db",
+            },
+        )
+
+    err = str(exc_info.value)
+    assert sentinel_password not in err
+    assert "port" in err
+
+    # Also test invalid database_config dict structure
+    with pytest.raises(ValidationError) as exc_info2:
+        TenantSecrets.model_validate(
+            {
+                "tenant_id": "t1",
+                "database_config": {"password": sentinel_password},
+            }
+        )
+
+    err2 = str(exc_info2.value)
+    assert sentinel_password not in err2
+    assert "host" in err2
+
+
+def test_database_config_validation_error_masks_password() -> None:
+    """DatabaseConfig validation errors must not leak passwords."""
+    from pydantic import ValidationError
+
+    sentinel_password = "SUPER_SECRET_DBCONFIG_PASS"
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseConfig(
+            dialect="postgresql",
+            host="localhost",
+            port="bad_port_not_int",
+            username="user",
+            password=sentinel_password,
+            database_name="db",
+        )
+
+    err = str(exc_info.value)
+    assert sentinel_password not in err
+    assert "port" in err

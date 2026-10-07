@@ -144,7 +144,7 @@ def get_tenant_secrets(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Secrets for active tenant '{tenant_config.tenant_id}' are not configured",
+            detail="Tenant is not correctly configured",
         )
 
     if not secrets:
@@ -154,7 +154,7 @@ def get_tenant_secrets(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Secrets for active tenant '{tenant_config.tenant_id}' are not configured",
+            detail="Tenant is not correctly configured",
         )
 
     if secrets.tenant_id != tenant_config.tenant_id:
