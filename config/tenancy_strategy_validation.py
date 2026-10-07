@@ -68,9 +68,15 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
             db_key = (db_config.host.lower(), db_config.port, db_config.database_name)
             if db_key in seen_databases:
                 first_tenant, first_uri = seen_databases[db_key]
-                masked_uri = _mask_url(db_uri)
+                masked_first = _mask_url(first_uri)
+                masked_current = _mask_url(db_uri)
+                detail = (
+                    f"'{masked_first}'"
+                    if masked_first == masked_current
+                    else f"'{masked_first}' and '{masked_current}'"
+                )
                 raise ValueError(
-                    f"Duplicate database_uri '{masked_uri}' detected: used by both '{first_tenant}' and '{tenant_id}'. Each tenant must have a unique database_uri when TENANCY_DB_STRATEGY='database'."
+                    f"Duplicate database detected: both tenants '{first_tenant}' and '{tenant_id}' resolve to the same database ({detail}). Each tenant must have a distinct database when TENANCY_DB_STRATEGY='database'."
                 )
             seen_databases[db_key] = (tenant_id, db_uri)
 

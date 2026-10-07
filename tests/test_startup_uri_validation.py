@@ -72,7 +72,8 @@ def test_database_strategy_startup_rejects_duplicate_database_uris(
         validate_tenancy_strategy_startup(settings)
 
     err = str(exc_info.value)
-    assert "Duplicate database_uri" in err
+    assert "Duplicate database" in err
+    assert "resolve to the same database" in err
     assert "alice" in err and "bob" in err
     assert sentinel_password not in err
 
@@ -472,7 +473,8 @@ def test_database_strategy_startup_rejects_same_host_port_db_with_different_cred
         validate_tenancy_strategy_startup(settings)
 
     err = str(exc_info.value)
-    assert "Duplicate database_uri" in err
+    assert "Duplicate database" in err
+    assert "resolve to the same database" in err
     assert "alice" in err and "bob" in err
     assert sentinel_pass_alice not in err
     assert sentinel_pass_bob not in err
