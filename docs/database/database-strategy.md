@@ -49,6 +49,6 @@ FastKitty solves this by maintaining a **Bounded LRU (Least Recently Used) Engin
 At application boot, `validate_tenancy_strategy_startup` validates the database configuration across all discoverable tenants:
 1. **Secret Resolution**: Ensures every tenant configured in tenancy configuration has a corresponding entry in the secrets provider.
 2. **URI Construction & Credential Validation**: Verifies that every tenant's `database_config` produces a parseable async database URI with required parameters (`host`, `database_name`).
-3. **Database URI Uniqueness**: Ensures that each tenant has a unique `database_uri`. If two tenants resolve to the same database URI, startup raises a `ValueError` immediately, preventing accidental cross-tenant data sharing in database-per-tenant mode.
+3. **Database Uniqueness**: Ensures that each tenant points to a distinct physical database identified by `(host, port, database_name)` (with case-insensitive host matching). If two tenants resolve to the same database—even with different user credentials—startup raises a `ValueError` immediately, preventing accidental cross-tenant data sharing in database-per-tenant mode. (Note: hostname aliases such as `localhost` vs `127.0.0.1` are string-compared and not resolved via DNS).
 4. **Credential Masking**: All validation error messages mask database passwords (`***`) via `_mask_url` to prevent credentials from appearing in container logs.
 

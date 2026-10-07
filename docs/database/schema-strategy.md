@@ -45,6 +45,7 @@ All tenants share a single `database_uri`, but each tenant provides a distinct `
 4. All table references (`SELECT * FROM blog_posts`) automatically resolve to `airbnb.blog_posts`.
 
 ### Security & Safety Protections
+* **Startup Schema Validation**: During boot, `validate_tenancy_strategy_startup` validates each tenant's `schema_name` against SQL injection patterns (`^[a-zA-Z_][a-zA-Z0-9_]*$`) and reserved PostgreSQL names (`public`, `pg_catalog`, `information_schema`), while ensuring schema names are unique across tenants (evaluated case-insensitively and after 63-byte identifier truncation).
 * **SQL Injection Guard**: Schema names are validated as safe SQL identifiers using regex (`^[a-zA-Z_][a-zA-Z0-9_]*$`) before being formatted into `SET LOCAL search_path`.
 * **Reserved Schema Protection**: Reserved PostgreSQL schemas (`public`, `pg_catalog`, `information_schema`) are strictly rejected.
 * **Transaction-Scoped Isolation**: Using `SET LOCAL` attached to the `after_begin` event hook guarantees that even if a tenant session encounters an error or explicit `rollback()`, search path settings do not leak across pooled connections to subsequent requests.

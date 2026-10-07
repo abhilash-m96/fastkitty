@@ -44,7 +44,7 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
     )
 
     strategy = settings.TENANCY_DB_STRATEGY
-    seen_database_uris: dict[str, str] = {}
+    seen_databases: dict[tuple[str, int, str], tuple[str, str]] = {}
     first_shared_tenant: str | None = None
     first_shared_uri: str | None = None
     first_pool_settings: tuple[int, int, int, bool] | None = None
@@ -65,13 +65,14 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
 
         db_uri = db_config.database_uri
         if strategy == "database":
-            if db_uri in seen_database_uris:
-                first_tenant = seen_database_uris[db_uri]
+            db_key = (db_config.host.lower(), db_config.port, db_config.database_name)
+            if db_key in seen_databases:
+                first_tenant, first_uri = seen_databases[db_key]
                 masked_uri = _mask_url(db_uri)
                 raise ValueError(
                     f"Duplicate database_uri '{masked_uri}' detected: used by both '{first_tenant}' and '{tenant_id}'. Each tenant must have a unique database_uri when TENANCY_DB_STRATEGY='database'."
                 )
-            seen_database_uris[db_uri] = tenant_id
+            seen_databases[db_key] = (tenant_id, db_uri)
 
         elif strategy in ("row", "schema"):
             current_pool_settings = (
@@ -97,6 +98,9 @@ def validate_tenancy_strategy_startup(settings: Settings) -> None:
                     )
 
             if strategy == "schema":
+                from db.tenancy_strategy import _normalize_schema_name
+
+                _normalize_schema_name(db_config)
                 schema_name = db_config.schema_name
                 if schema_name:
                     canonical_schema = schema_name.lower()[:63]
